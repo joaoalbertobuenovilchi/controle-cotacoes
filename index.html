@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -1782,20 +1783,227 @@ function importarPrecosFornecedor(event, fid){
   });
   event.target.value = '';
 }
-/* ---------------- Exportar ficha de cotação em branco para um fornecedor (.xlsx) ----------------
-   Gera um arquivo já formatado (ID, Descrição, Unidade, Quantidade, Valor Unitário
-   em branco) para enviar ao fornecedor preencher e devolver. */
-function exportarFichaFornecedor(fid){
+/* ============================================================
+   FICHA DE COTAÇÃO PARA FORNECEDOR — planilha com cabeçalho da
+   entidade (mesmos dados do módulo "Cadastro da Entidade"),
+   bordas externas/internas, e envio automático por e-mail.
+   ============================================================
+   OBS. IMPORTANTE SOBRE O ENVIO POR E-MAIL: por segurança dos
+   navegadores, nenhum site consegue anexar um arquivo sozinho a um
+   e-mail — isso vale para qualquer aplicativo web, não só este.
+   Por isso o fluxo abaixo faz o que É possível automatizar:
+   1) gera e baixa a ficha já formatada; 2) abre automaticamente a
+   composição de um novo e-mail, já endereçada ao fornecedor, com
+   assunto e corpo prontos, usando o e-mail e o webmail do próprio
+   usuário logado (Gmail, Outlook/Hotmail, Yahoo têm link direto de
+   composição; para outros provedores como BOL/UOL, abre o programa
+   de e-mail padrão via "mailto", já autenticado com a conta do
+   usuário). Só falta o usuário anexar o arquivo baixado e clicar em
+   enviar. */
+
+/* Links diretos de composição para os principais webmails. Provedores
+   fora desta lista (BOL, UOL, Terra, e-mails corporativos etc.) caem
+   no "mailto:" padrão. */
+const WEBMAIL_COMPOSE_LINKS = {
+  'gmail.com':      p => `https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=${p.to}&su=${p.su}&body=${p.body}`,
+  'googlemail.com': p => `https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=${p.to}&su=${p.su}&body=${p.body}`,
+  'outlook.com':    p => `https://outlook.live.com/mail/0/deeplink/compose?to=${p.to}&subject=${p.su}&body=${p.body}`,
+  'hotmail.com':    p => `https://outlook.live.com/mail/0/deeplink/compose?to=${p.to}&subject=${p.su}&body=${p.body}`,
+  'live.com':       p => `https://outlook.live.com/mail/0/deeplink/compose?to=${p.to}&subject=${p.su}&body=${p.body}`,
+  'msn.com':        p => `https://outlook.live.com/mail/0/deeplink/compose?to=${p.to}&subject=${p.su}&body=${p.body}`,
+  'yahoo.com':      p => `https://compose.mail.yahoo.com/?to=${p.to}&subject=${p.su}&body=${p.body}`,
+  'yahoo.com.br':   p => `https://compose.mail.yahoo.com/?to=${p.to}&subject=${p.su}&body=${p.body}`,
+};
+function abrirComposeEmail(remetenteEmail, destinatario, assunto, corpo){
+  const dominio = ((remetenteEmail||'').split('@')[1]||'').trim().toLowerCase();
+  const builder = WEBMAIL_COMPOSE_LINKS[dominio];
+  const p = { to: encodeURIComponent(destinatario), su: encodeURIComponent(assunto), body: encodeURIComponent(corpo) };
+  if(builder){ window.open(builder(p), '_blank'); }
+  else { window.location.href = `mailto:${destinatario}?subject=${p.su}&body=${p.body}`; }
+}
+function carregarDimensoesImagem(dataUrl){
+  return new Promise(resolve=>{
+    if(!dataUrl){ resolve(null); return; }
+    const img = new Image();
+    img.onload = ()=> resolve({width: img.naturalWidth||img.width, height: img.naturalHeight||img.height});
+    img.onerror = ()=> resolve(null);
+    img.src = dataUrl;
+  });
+}
+function dataUrlParaImagemExcel(dataUrl){
+  const m = /^data:image\/(png|jpe?g);base64,(.+)$/i.exec(dataUrl||'');
+  if(!m) return null;
+  const ext = m[1].toLowerCase()==='jpg' ? 'jpeg' : m[1].toLowerCase();
+  return { base64: m[2], extension: ext };
+}
+async function inserirLogoEntidadeExcel(wb, ws, dataUrl, colInicial, rowInicial, boxW, boxH){
+  const dados = dataUrlParaImagemExcel(dataUrl);
+  if(!dados) return;
+  const dims = await carregarDimensoesImagem(dataUrl);
+  let w = boxW, h = boxH;
+  if(dims && dims.width && dims.height){
+    const escala = Math.min(boxW/dims.width, boxH/dims.height);
+    w = Math.round(dims.width*escala);
+    h = Math.round(dims.height*escala);
+  }
+  const imgId = wb.addImage({ base64: dados.base64, extension: dados.extension });
+  ws.addImage(imgId, { tl:{ col: colInicial, row: rowInicial }, ext:{ width:w, height:h }, editAs:'oneCell' });
+}
+function aplicarBordaIntervalo(ws, r1, c1, r2, c2, borda){
+  for(let r=r1;r<=r2;r++){ for(let col=c1;col<=c2;col++){ ws.getCell(r,col).border = borda; } }
+}
+/* Monta o workbook (ExcelJS) da ficha em branco de UM fornecedor, com o
+   mesmo cabeçalho institucional do módulo "Cadastro da Entidade" e
+   bordas externas e internas em toda a planilha. */
+async function gerarWorkbookFichaFornecedor(c, fid){
+  const e = STATE.entidade || {};
+  const nomeForn = fornecedorNome(fid);
+  const wb = new ExcelJS.Workbook();
+  wb.creator = entidadeNome();
+  wb.created = new Date();
+  const ws = wb.addWorksheet('Cotação', { views:[{ showGridLines:false }] });
+  ws.columns = [ {width:6}, {width:46}, {width:11}, {width:13}, {width:18} ];
+
+  ws.mergeCells('A1:E1');
+  const linhaEntidade = ws.getCell('A1');
+  linhaEntidade.value = (e.nome || entidadeNome() || 'Entidade não cadastrada').toUpperCase();
+  linhaEntidade.font = { bold:true, size:14, color:{argb:'FF16323A'} };
+  linhaEntidade.alignment = { horizontal:'center', vertical:'middle' };
+  ws.getRow(1).height = 24;
+
+  for(let r=2;r<=5;r++) ws.getRow(r).height = 15;
+  ws.mergeCells('C2:C5');
+  const subtitulo = ws.getCell('C2');
+  subtitulo.value = 'FICHA DE\nCOTAÇÃO DE\nPREÇOS';
+  subtitulo.font = { bold:true, size:9, color:{argb:'FF0E6E6E'} };
+  subtitulo.alignment = { horizontal:'center', vertical:'middle', wrapText:true };
+
+  ws.mergeCells('A6:E6');
+  const partesContato = [];
+  if(e.cnpj) partesContato.push('CNPJ: '+e.cnpj);
+  if(e.telefone) partesContato.push('Telefone: '+e.telefone);
+  const linhaContato = ws.getCell('A6');
+  linhaContato.value = partesContato.join('     |     ');
+  linhaContato.font = { size:9, color:{argb:'FF5B7480'} };
+  linhaContato.alignment = { horizontal:'center' };
+  ws.getRow(6).height = 14;
+
+  ws.mergeCells('A7:E7');
+  const enderecoCompleto = [e.endereco, e.numero].filter(Boolean).join(', ');
+  const partesEndereco = [];
+  if(enderecoCompleto) partesEndereco.push('Endereço: '+enderecoCompleto);
+  if(e.cep) partesEndereco.push('CEP: '+e.cep);
+  const linhaEndereco = ws.getCell('A7');
+  linhaEndereco.value = partesEndereco.join('     |     ');
+  linhaEndereco.font = { size:9, color:{argb:'FF5B7480'} };
+  linhaEndereco.alignment = { horizontal:'center' };
+  ws.getRow(7).height = 14;
+
+  ws.mergeCells('A8:E8');
+  const linhaCot = ws.getCell('A8');
+  linhaCot.value = `Cotação Nº: ${c.numero}     |     Fornecedor: ${nomeForn}     |     Emissão: ${fmtDateBR(new Date().toISOString().slice(0,10))}`;
+  linhaCot.font = { bold:true, size:10, color:{argb:'FF16323A'} };
+  linhaCot.alignment = { horizontal:'center' };
+  ws.getRow(8).height = 16;
+  ws.getRow(9).height = 6;
+
+  const brasaoPos = e.brasaoPos==='direita' ? 'direita' : 'esquerda';
+  const logoPos = e.logoPos==='esquerda' ? 'esquerda' : 'direita';
+  if(e.brasao) await inserirLogoEntidadeExcel(wb, ws, e.brasao, brasaoPos==='direita'?3.2:0.2, 1.2, 70, 58);
+  if(e.logo) await inserirLogoEntidadeExcel(wb, ws, e.logo, logoPos==='esquerda'?0.2:3.2, 1.2, 70, 58);
+
+  const headerRow = 10;
+  ['ID','DESCRIÇÃO DO PRODUTO','UNIDADE','QUANTIDADE','VALOR UNITÁRIO'].forEach((txt,i)=>{
+    const cell = ws.getRow(headerRow).getCell(i+1);
+    cell.value = txt;
+    cell.font = { bold:true, color:{argb:'FFFFFFFF'} };
+    cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF0E6E6E'} };
+    cell.alignment = { horizontal:'center', vertical:'middle', wrapText:true };
+  });
+  ws.getRow(headerRow).height = 24;
+
+  c.itens.forEach((it,i)=>{
+    const row = ws.getRow(headerRow+1+i);
+    row.getCell(1).value = i+1;
+    row.getCell(2).value = it.descricao;
+    row.getCell(3).value = it.unidade;
+    row.getCell(4).value = Number(it.quantidade)||0;
+    row.getCell(5).value = null;
+    row.getCell(1).alignment = { horizontal:'center' };
+    row.getCell(3).alignment = { horizontal:'center' };
+    row.getCell(4).alignment = { horizontal:'center' };
+    row.getCell(5).numFmt = '"R$" #,##0.00';
+  });
+  const ultimaLinha = headerRow + Math.max(c.itens.length,1);
+
+  const BORDA_FINA = { top:{style:'thin',color:{argb:'FFB7C7C9'}}, left:{style:'thin',color:{argb:'FFB7C7C9'}}, bottom:{style:'thin',color:{argb:'FFB7C7C9'}}, right:{style:'thin',color:{argb:'FFB7C7C9'}} };
+  aplicarBordaIntervalo(ws, 1, 1, ultimaLinha, 5, BORDA_FINA);
+  const GROSSA = { style:'medium', color:{argb:'FF16323A'} };
+  for(let col=1; col<=5; col++){
+    ws.getCell(1,col).border = { ...ws.getCell(1,col).border, top:GROSSA };
+    ws.getCell(ultimaLinha,col).border = { ...ws.getCell(ultimaLinha,col).border, bottom:GROSSA };
+  }
+  for(let row=1; row<=ultimaLinha; row++){
+    ws.getCell(row,1).border = { ...ws.getCell(row,1).border, left:GROSSA };
+    ws.getCell(row,5).border = { ...ws.getCell(row,5).border, right:GROSSA };
+  }
+  return wb;
+}
+async function baixarWorkbook(wb, nomeArquivo){
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nomeArquivo; a.click();
+  URL.revokeObjectURL(url);
+}
+function corpoEmailFicha(c, nomeForn){
+  const nomeSolicitante = currentUser ? (currentUser.nome||currentUser.usuario) : '';
+  const ent = entidadeNome();
+  const tel = (STATE.entidade && STATE.entidade.telefone) ? `\nTelefone: ${STATE.entidade.telefone}` : '';
+  return `Prezados, da ${nomeForn},\n\n`+
+    `Segue solicitação de cotação de preços nº ${c.numero}${c.destino?(' - '+c.destino):''}.\n`+
+    `A ficha em branco foi baixada agora neste computador — por favor, anexe o arquivo a este e-mail antes de enviar.\n\n`+
+    `Pedimos gentileza de preencher o valor unitário de cada item e devolver a planilha respondida.\n\n`+
+    `Atenciosamente,\n${nomeSolicitante}\n${ent}${tel}`;
+}
+/* Gera a ficha em branco (com o cabeçalho da entidade e bordas), baixa o
+   arquivo e já abre a composição do e-mail para o fornecedor, usando o
+   e-mail do usuário logado (cadastrado em Administração → Usuários) como
+   remetente — funciona com Gmail, Hotmail/Outlook, BOL, UOL ou qualquer
+   outro provedor. */
+async function exportarFichaFornecedor(fid){
   const c = getCotacaoAberta(); if(!c) return;
+  const forn = STATE.fornecedores.find(f=>f.id===fid);
   const nome = fornecedorNome(fid);
-  const linhas = [['ID','DESCRIÇÃO DO PRODUTO','UNIDADE','QUANTIDADE','VALOR UNITÁRIO']];
-  c.itens.forEach((it,i)=> linhas.push([i+1, it.descricao, it.unidade, it.quantidade, '']));
-  const ws = XLSX.utils.aoa_to_sheet(linhas);
-  ws['!cols'] = [{wch:5},{wch:45},{wch:10},{wch:12},{wch:16}];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Cotação');
-  XLSX.writeFile(wb, `Cotacao_${c.numero.replace('/','-')}_${nome.replace(/[^a-zA-Z0-9]+/g,'_')}.xlsx`);
-  showToast('Ficha gerada para '+nome+'. Envie o arquivo para o fornecedor preencher o valor unitário.','success');
+  if(!currentUser || !currentUser.email){
+    showToast('Cadastre um e-mail para o seu usuário em Administração → Usuários para poder enviar fichas por e-mail.', 'warning');
+  }
+  showToast('Gerando ficha para '+nome+'…');
+  try{
+    const wb = await gerarWorkbookFichaFornecedor(c, fid);
+    const nomeArquivo = `Cotacao_${c.numero.replace('/','-')}_${nome.replace(/[^a-zA-Z0-9]+/g,'_')}.xlsx`;
+    await baixarWorkbook(wb, nomeArquivo);
+    if(forn && forn.email && currentUser && currentUser.email){
+      const assunto = `Solicitação de Cotação de Preços Nº ${c.numero} - ${entidadeNome()}`;
+      abrirComposeEmail(currentUser.email, forn.email, assunto, corpoEmailFicha(c, nome));
+      showToast('Ficha baixada e e-mail para '+nome+' aberto para envio. Anexe o arquivo baixado antes de enviar (os navegadores não permitem anexar arquivos automaticamente).', 'success');
+    } else if(!forn || !forn.email){
+      showToast('Ficha baixada. Este fornecedor não tem e-mail cadastrado em Cadastros → Fornecedores, então o e-mail não pôde ser aberto automaticamente.', 'warning');
+    }
+  }catch(err){
+    showToast('Não foi possível gerar a ficha: '+(err.message||err), 'error');
+  }
+}
+/* Gera e envia a ficha para TODOS os fornecedores participantes da
+   cotação de uma só vez (um download + uma janela de e-mail por
+   fornecedor). */
+async function enviarFichasTodosFornecedores(){
+  const c = getCotacaoAberta(); if(!c) return;
+  if(!c.fornecedoresParticipantes.length){ showToast('Selecione ao menos um fornecedor participante.'); return; }
+  for(const fid of c.fornecedoresParticipantes){
+    await exportarFichaFornecedor(fid);
+  }
 }
 /* ---------------- Exportar o mapa comparativo completo em Excel ---------------- */
 function exportarMapaExcel(){
@@ -1945,12 +2153,13 @@ function viewCotacaoBuilder(c){
           </span>`).join('')}
       </div>`}
       ${podeEd && c.fornecedoresParticipantes.length>0 ? `
-      <div class="helpbox">📤 Para pedir preço a um fornecedor: gere a ficha em branco e envie o arquivo. Para lançar os preços recebidos: cole os valores na tabela abaixo ou importe a planilha de resposta do fornecedor.</div>
+      <div class="helpbox">📤 Para pedir preço a um fornecedor: clique em "ficha". A planilha em branco (com o cabeçalho da entidade e bordas) é baixada e o app já abre um e-mail pronto para o fornecedor, usando o seu e-mail cadastrado em Administração → Usuários — só falta anexar o arquivo baixado e enviar (navegadores não permitem anexar arquivos automaticamente). Para lançar os preços recebidos: cole os valores na tabela abaixo ou importe a planilha de resposta do fornecedor.</div>
+      <div style="margin-top:8px;"><button class="btn secondary small" onclick="enviarFichasTodosFornecedores()">📧 Gerar e enviar fichas para todos os fornecedores</button></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
         ${c.fornecedoresParticipantes.map(fid=>`
           <div class="flexrow" style="gap:6px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;">
             <b style="font-size:12px;">${esc(fornecedorNome(fid))}</b>
-            <button class="btn ghost small" onclick="exportarFichaFornecedor('${fid}')" title="Gerar planilha em branco para enviar">📤 ficha</button>
+            <button class="btn ghost small" onclick="exportarFichaFornecedor('${fid}')" title="Gerar planilha em branco (com cabeçalho e bordas) e abrir e-mail para o fornecedor">📤 ficha</button>
             <button class="btn ghost small" onclick="document.getElementById('impPreco_${fid}').click()" title="Importar planilha de preços deste fornecedor">⭱ preços</button>
             <input type="file" id="impPreco_${fid}" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importarPrecosFornecedor(event,'${fid}')">
           </div>`).join('')}
