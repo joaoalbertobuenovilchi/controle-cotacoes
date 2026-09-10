@@ -1567,7 +1567,7 @@ function abrirCotacao(id){ cotacaoAbertaId = id; goto('novaCotacao'); }
 function criarCotacao(){
   if(semPermissao('novaCotacao')) return;
   const numero = novoNumeroCotacaoPreview();
-  const solicitante = (document.getElementById('novaCotSolicitante')?.value||'').trim();
+  const solicitante = currentUser ? (currentUser.nome||currentUser.usuario) : (document.getElementById('novaCotSolicitante')?.value||'').trim();
   const destino = (document.getElementById('novaCotDestino')?.value||'').trim();
   const c = {
     id: uid(), numero, status:'ABERTA',
@@ -1835,7 +1835,7 @@ function formIniciarCotacaoHTML(){
       <h2>🆕 Iniciar nova cotação</h2>
       <div class="subtitle">O número da cotação é gerado automaticamente: <b>${esc(novoNumeroCotacaoPreview())}</b></div>
       <div class="formgrid">
-        <div class="field"><label>Solicitante</label><input id="novaCotSolicitante" placeholder="Nome de quem está solicitando"></div>
+        <div class="field"><label>Solicitante</label><input id="novaCotSolicitante" value="${esc(currentUser ? (currentUser.nome||currentUser.usuario) : '')}" disabled></div>
         <div class="field"><label>Destino/Setor</label>
           <select id="novaCotDestino">
             <option value="">Selecione…</option>
