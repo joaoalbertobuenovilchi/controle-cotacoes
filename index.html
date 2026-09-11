@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -2328,16 +2329,25 @@ let _dashCharts = [];
 function agregadosGerais(){
   const fechadas = STATE.cotacoes.filter(c=>c.status==='FECHADA');
   const abertas = STATE.cotacoes.filter(c=>c.status==='ABERTA');
-  let valorTotal = 0, economiaTotal = 0;
+  let valorTotal = 0, economiaTotal = 0, itensTotais = 0;
   const vitoriasPorForn = {}; // fid -> qtd itens vencidos
   const valorPorForn = {};    // fid -> soma dos totais vencidos
   const gastoPorMes = {};     // 'AAAA-MM' -> total
+  const economiaPorMes = {};  // 'AAAA-MM' -> economia
+  const porDestino = {};      // destino -> {qtd, valor, economia}
   fechadas.forEach(c=>{
     const r = resumoCotacaoCalc(c);
     valorTotal += r.totalVencedor;
     economiaTotal += r.economia;
+    itensTotais += c.itens.length;
     const mesChave = (c.dataFechamento||c.dataAbertura||'').slice(0,7);
-    if(mesChave) gastoPorMes[mesChave] = (gastoPorMes[mesChave]||0) + r.totalVencedor;
+    if(mesChave){
+      gastoPorMes[mesChave] = (gastoPorMes[mesChave]||0) + r.totalVencedor;
+      economiaPorMes[mesChave] = (economiaPorMes[mesChave]||0) + r.economia;
+    }
+    const d = c.destino || '(sem destino)';
+    if(!porDestino[d]) porDestino[d] = { qtd:0, valor:0, economia:0 };
+    porDestino[d].qtd++; porDestino[d].valor += r.totalVencedor; porDestino[d].economia += r.economia;
     c.itens.forEach(it=>{
       const fid = c.vencedores ? c.vencedores[it.id] : null;
       if(!fid) return;
@@ -2346,13 +2356,71 @@ function agregadosGerais(){
       valorPorForn[fid] = (valorPorForn[fid]||0) + total;
     });
   });
-  return { fechadas, abertas, valorTotal, economiaTotal, vitoriasPorForn, valorPorForn, gastoPorMes };
+  const ticketMedio = fechadas.length ? valorTotal/fechadas.length : 0;
+  const percentEconomia = (valorTotal+economiaTotal)>0 ? (economiaTotal/(valorTotal+economiaTotal))*100 : 0;
+  return { fechadas, abertas, valorTotal, economiaTotal, vitoriasPorForn, valorPorForn, gastoPorMes, economiaPorMes, porDestino, itensTotais, ticketMedio, percentEconomia };
+}
+/* ---------------- Agregados por produto/item (para o Relatório por Produto) ----------------
+   Consolida, entre TODAS as cotações (abertas e fechadas), quantas vezes cada
+   produto foi cotado, o preço médio/menor/maior já registrado e quem ofereceu
+   o menor preço histórico. */
+function agregadosPorProduto(){
+  const porProduto = {};
+  STATE.cotacoes.forEach(c=>{
+    c.itens.forEach(it=>{
+      const chave = normTxt(it.descricao);
+      if(!chave) return;
+      if(!porProduto[chave]) porProduto[chave] = { descricao: it.descricao, unidade: it.unidade, cotacoesIds: new Set(), precos: [], menor:null, maior:null };
+      const p = porProduto[chave];
+      p.cotacoesIds.add(c.id);
+      (c.fornecedoresParticipantes||[]).forEach(fid=>{
+        const preco = Number(it.precos[fid]);
+        if(preco>0){
+          p.precos.push(preco);
+          if(!p.menor || preco<p.menor.valor) p.menor = {valor:preco, fid};
+          if(!p.maior || preco>p.maior.valor) p.maior = {valor:preco, fid};
+        }
+      });
+    });
+  });
+  return Object.values(porProduto).map(p=>({
+    descricao: p.descricao,
+    unidade: p.unidade,
+    qtdCotacoes: p.cotacoesIds.size,
+    precoMedio: p.precos.length ? p.precos.reduce((a,b)=>a+b,0)/p.precos.length : 0,
+    menor: p.menor,
+    maior: p.maior,
+  })).sort((a,b)=>b.qtdCotacoes-a.qtdCotacoes);
+}
+/* ---------------- Agregados detalhados de UM fornecedor (para o Relatório por Fornecedor) ---------------- */
+function agregadosPorFornecedor(fid){
+  const participou = STATE.cotacoes.filter(c=>(c.fornecedoresParticipantes||[]).includes(fid));
+  let itensCotados=0, itensVencidos=0, valorFornecido=0;
+  const historico = [];
+  participou.forEach(c=>{
+    if(c.status==='FECHADA') calcularVencedores(c);
+    let venceuNesta=0, cotadosNesta=0, valorNesta=0;
+    c.itens.forEach(it=>{
+      const preco = Number(it.precos[fid]);
+      if(preco>0){ itensCotados++; cotadosNesta++; }
+      if(c.status==='FECHADA' && c.vencedores && c.vencedores[it.id]===fid){
+        itensVencidos++; venceuNesta++;
+        valorNesta += preco*(Number(it.quantidade)||0);
+      }
+    });
+    valorFornecido += valorNesta;
+    historico.push({ cotacao:c, venceu:venceuNesta, cotados:cotadosNesta, valor:valorNesta });
+  });
+  const taxaVitoria = itensCotados ? (itensVencidos/itensCotados*100) : 0;
+  return { participou, itensCotados, itensVencidos, valorFornecido, taxaVitoria, historico: historico.sort((a,b)=>(b.cotacao.dataAbertura||'').localeCompare(a.cotacao.dataAbertura||'')) };
 }
 function viewDashboard(){
   const ag = agregadosGerais();
   const rankingArr = Object.keys(ag.valorPorForn).map(fid=>({fid, nome:fornecedorNome(fid), valor:ag.valorPorForn[fid], vitorias:ag.vitoriasPorForn[fid]||0}))
     .sort((a,b)=>b.valor-a.valor).slice(0,6);
   const campeao = rankingArr.slice().sort((a,b)=>b.vitorias-a.vitorias)[0];
+  const produtosTop = agregadosPorProduto().slice(0,6);
+  const destinosArr = Object.keys(ag.porDestino).map(d=>({destino:d, ...ag.porDestino[d]})).sort((a,b)=>b.valor-a.valor).slice(0,6);
   return `
     <div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:16px;">
       <div class="stat"><div class="label">Cotações em andamento</div><div class="value">${ag.abertas.length}</div><div class="hint">aguardando fechamento</div></div>
@@ -2360,6 +2428,10 @@ function viewDashboard(){
       <div class="stat"><div class="label">Valor total cotado</div><div class="value" style="color:var(--teal-dark);">${fmtMoney(ag.valorTotal)}</div><div class="hint">soma dos menores preços</div></div>
       <div class="stat"><div class="label">Economia estimada</div><div class="value" style="color:var(--green);">${fmtMoney(ag.economiaTotal)}</div><div class="hint">melhor oferta vs. pior oferta</div></div>
       <div class="stat"><div class="label">Fornecedor campeão</div><div class="value" style="font-size:16px;">${campeao?esc(campeao.nome):'—'}</div><div class="hint">${campeao?campeao.vitorias+' item(ns) vencido(s)':'sem dados ainda'}</div></div>
+      <div class="stat"><div class="label">% de economia</div><div class="value" style="color:var(--green);">${ag.percentEconomia.toFixed(1)}%</div><div class="hint">frente ao maior preço ofertado</div></div>
+      <div class="stat"><div class="label">Ticket médio por cotação</div><div class="value">${fmtMoney(ag.ticketMedio)}</div><div class="hint">valor médio das cotações fechadas</div></div>
+      <div class="stat"><div class="label">Fornecedores ativos</div><div class="value">${fornecedoresAtivos().length}</div><div class="hint">cadastrados e habilitados</div></div>
+      <div class="stat"><div class="label">Produtos no catálogo</div><div class="value">${STATE.produtos.length}</div><div class="hint">itens reutilizáveis</div></div>
     </div>
     <div class="dash-chart-grid">
       <div class="card">
@@ -2377,6 +2449,23 @@ function viewDashboard(){
             <div class="rank-valor">${fmtMoney(r.valor)}</div>
           </div>`).join('')}
       </div>
+      <div class="card">
+        <h2>💚 Economia mensal</h2>
+        <div class="chartbox"><canvas id="chartEconomiaMes"></canvas></div>
+      </div>
+      <div class="card">
+        <h2>🥧 Valor por fornecedor</h2>
+        <div class="subtitle">Participação de cada fornecedor no valor total fechado</div>
+        <div class="chartbox"><canvas id="chartValorForn"></canvas></div>
+      </div>
+      <div class="card">
+        <h2>🏷️ Cotações por destino/setor</h2>
+        <div class="chartbox"><canvas id="chartDestino"></canvas></div>
+      </div>
+      <div class="card">
+        <h2>📦 Produtos mais cotados</h2>
+        ${produtosTop.length===0?`<div class="helpbox">Sem itens cotados ainda.</div>`:`<div class="chartbox"><canvas id="chartProdutos"></canvas></div>`}
+      </div>
     </div>
     <div class="card">
       <h2>🕐 Cotações recentes</h2>
@@ -2387,27 +2476,323 @@ function viewDashboard(){
           <div class="cot-meta">${esc(c.solicitante)||'sem solicitante'} · ${esc(c.destino)||'sem destino'} · ${fmtDateBR(c.dataAbertura)}</div>
         </div>`).join('')}
     </div>
+    <div class="card">
+      <div class="flexrow" style="margin-bottom:8px;">
+        <h2 style="margin:0;">📤 Exportar para apresentação</h2>
+      </div>
+      <div class="subtitle">Gere um resumo pronto para apresentar aos demais setores da entidade, com os principais números, rankings e gráficos deste painel.</div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" onclick="exportarDashboardPowerPoint()">📊 Exportar PowerPoint</button>
+        <button class="btn secondary" onclick="exportarDashboardExcel()">📗 Exportar Excel (gráficos e tabelas)</button>
+      </div>
+    </div>
   `;
 }
+/* ============================================================
+   EXPORTAR PAINEL PARA APRESENTAÇÃO (PowerPoint e Excel)
+   ============================================================
+   Reaproveita os números já calculados no dashboard e as imagens dos
+   próprios gráficos exibidos na tela (capturadas do <canvas> do Chart.js)
+   para montar um material pronto para apresentar a outros setores. */
+function capturarGraficoComoImagem(canvasId){
+  const cv = document.getElementById(canvasId);
+  if(!cv) return null;
+  try{ return cv.toDataURL('image/png', 1.0); }catch(e){ return null; }
+}
+const GRAFICOS_DASHBOARD = [
+  {id:'chartGastoMes', titulo:'Valor cotado por mês'},
+  {id:'chartEconomiaMes', titulo:'Economia mensal'},
+  {id:'chartValorForn', titulo:'Valor por fornecedor'},
+  {id:'chartDestino', titulo:'Cotações por destino/setor'},
+  {id:'chartProdutos', titulo:'Produtos mais cotados'},
+];
+async function exportarDashboardPowerPoint(){
+  if(typeof PptxGenJS==='undefined'){ showToast('Não foi possível carregar a biblioteca de PowerPoint. Verifique sua conexão com a internet.', 'error'); return; }
+  showToast('Gerando apresentação em PowerPoint…');
+  try{
+    const e = STATE.entidade || {};
+    const ag = agregadosGerais();
+    const ranking = Object.keys(ag.valorPorForn).map(fid=>({nome:fornecedorNome(fid), valor:ag.valorPorForn[fid], vitorias:ag.vitoriasPorForn[fid]||0})).sort((a,b)=>b.valor-a.valor).slice(0,10);
+    const produtos = agregadosPorProduto().slice(0,10);
+    const destinos = Object.keys(ag.porDestino).map(d=>({destino:d, ...ag.porDestino[d]})).sort((a,b)=>b.valor-a.valor).slice(0,10);
+    const corTeal = '0E6E6E', corInk = '16323A', corSoft = '5B7480';
+
+    const pptx = new PptxGenJS();
+    pptx.layout = 'LAYOUT_WIDE';
+
+    // Slide 1 — capa
+    let s = pptx.addSlide();
+    s.background = { color:'0A4F4F' };
+    if(e.brasao){ try{ s.addImage({ data:e.brasao, x:0.5, y:0.4, w:1.1, h:1.1 }); }catch(err){} }
+    if(e.logo){ try{ s.addImage({ data:e.logo, x:11.7, y:0.4, w:1.1, h:1.1 }); }catch(err){} }
+    s.addText((e.nome||entidadeNome()||'').toUpperCase(), { x:0.5, y:2.6, w:12.3, h:0.8, fontSize:26, bold:true, color:'FFFFFF', align:'center' });
+    s.addText('Painel de Cotações de Preços', { x:0.5, y:3.4, w:12.3, h:0.6, fontSize:18, color:'D9EDEA', align:'center' });
+    s.addText('Gerado em ' + new Date().toLocaleDateString('pt-BR'), { x:0.5, y:4.0, w:12.3, h:0.5, fontSize:12, color:'AFD4D1', align:'center' });
+
+    // Slide 2 — KPIs
+    s = pptx.addSlide();
+    s.addText('Principais números', { x:0.4, y:0.3, w:12.5, h:0.6, fontSize:22, bold:true, color:corInk });
+    const kpis = [
+      ['Cotações em andamento', String(ag.abertas.length)],
+      ['Cotações fechadas', String(ag.fechadas.length)],
+      ['Valor total cotado', fmtMoney(ag.valorTotal)],
+      ['Economia estimada', fmtMoney(ag.economiaTotal)],
+      ['% de economia', ag.percentEconomia.toFixed(1)+'%'],
+      ['Ticket médio por cotação', fmtMoney(ag.ticketMedio)],
+      ['Fornecedores ativos', String(fornecedoresAtivos().length)],
+      ['Produtos no catálogo', String(STATE.produtos.length)],
+    ];
+    kpis.forEach((k,i)=>{
+      const col = i%4, row = Math.floor(i/4);
+      const x = 0.4 + col*3.1, y = 1.15 + row*1.7;
+      s.addText([
+        { text: k[0], options:{ fontSize:10, color:corSoft, bold:true, breakLine:true } },
+        { text: k[1], options:{ fontSize:19, color:corTeal, bold:true } },
+      ], { x, y, w:2.9, h:1.45, fill:{color:'F2F6F7'}, line:{color:'E1E9EA', width:1}, margin:10, valign:'top' });
+    });
+
+    // Slides de gráficos (uma imagem por slide, capturada do dashboard na tela)
+    GRAFICOS_DASHBOARD.forEach(g=>{
+      const img = capturarGraficoComoImagem(g.id);
+      if(!img) return;
+      const sl = pptx.addSlide();
+      sl.addText(g.titulo, { x:0.4, y:0.3, w:12.5, h:0.6, fontSize:20, bold:true, color:corInk });
+      sl.addImage({ data:img, x:1.2, y:1.15, w:10.9, h:5.7, sizing:{type:'contain', w:10.9, h:5.7} });
+    });
+
+    const estiloCabecalhoTabela = { bold:true, fill:{color:corTeal}, color:'FFFFFF', fontSize:11 };
+    const estiloLinhaTabela = { fontSize:10.5, color:corInk };
+    // Slide — ranking de fornecedores
+    if(ranking.length){
+      s = pptx.addSlide();
+      s.addText('Ranking de fornecedores', { x:0.4, y:0.3, w:12.5, h:0.6, fontSize:20, bold:true, color:corInk });
+      const linhas = [[
+        {text:'#', options:estiloCabecalhoTabela}, {text:'Fornecedor', options:estiloCabecalhoTabela},
+        {text:'Itens vencidos', options:estiloCabecalhoTabela}, {text:'Valor fornecido', options:estiloCabecalhoTabela},
+      ]];
+      ranking.forEach((r,i)=> linhas.push([
+        {text:String(i+1), options:estiloLinhaTabela}, {text:r.nome, options:estiloLinhaTabela},
+        {text:String(r.vitorias), options:estiloLinhaTabela}, {text:fmtMoney(r.valor), options:estiloLinhaTabela},
+      ]));
+      s.addTable(linhas, { x:0.4, y:1.1, w:12.5, border:{color:'CBD8D8', pt:0.5}, autoPage:true });
+    }
+    // Slide — produtos mais cotados
+    if(produtos.length){
+      s = pptx.addSlide();
+      s.addText('Produtos mais cotados', { x:0.4, y:0.3, w:12.5, h:0.6, fontSize:20, bold:true, color:corInk });
+      const linhas = [[
+        {text:'Produto', options:estiloCabecalhoTabela}, {text:'Nº cotações', options:estiloCabecalhoTabela}, {text:'Preço médio', options:estiloCabecalhoTabela},
+      ]];
+      produtos.forEach(p=> linhas.push([
+        {text:p.descricao, options:estiloLinhaTabela}, {text:String(p.qtdCotacoes), options:estiloLinhaTabela}, {text:fmtMoney(p.precoMedio), options:estiloLinhaTabela},
+      ]));
+      s.addTable(linhas, { x:0.4, y:1.1, w:12.5, border:{color:'CBD8D8', pt:0.5}, autoPage:true });
+    }
+    // Slide — destinos/setores
+    if(destinos.length){
+      s = pptx.addSlide();
+      s.addText('Cotações por destino/setor', { x:0.4, y:0.3, w:12.5, h:0.6, fontSize:20, bold:true, color:corInk });
+      const linhas = [[
+        {text:'Destino/Setor', options:estiloCabecalhoTabela}, {text:'Qtd. cotações', options:estiloCabecalhoTabela}, {text:'Valor total', options:estiloCabecalhoTabela},
+      ]];
+      destinos.forEach(d=> linhas.push([
+        {text:d.destino, options:estiloLinhaTabela}, {text:String(d.qtd), options:estiloLinhaTabela}, {text:fmtMoney(d.valor), options:estiloLinhaTabela},
+      ]));
+      s.addTable(linhas, { x:0.4, y:1.1, w:12.5, border:{color:'CBD8D8', pt:0.5}, autoPage:true });
+    }
+
+    await pptx.writeFile({ fileName: `Apresentacao_Cotacoes_${hojeISO()}.pptx` });
+    showToast('Apresentação em PowerPoint gerada com sucesso!', 'success');
+  }catch(err){
+    showToast('Não foi possível gerar a apresentação: '+(err.message||err), 'error');
+  }
+}
+/* Adiciona um cabeçalho institucional simples (nome da entidade + subtítulo +
+   data) no topo de uma aba do Excel exportado. */
+function adicionarCabecalhoInstitucionalExcel(ws, numColunas, subtitulo){
+  const e = STATE.entidade || {};
+  const ultimaCol = String.fromCharCode(64+numColunas); // A, B, C...
+  ws.mergeCells(`A1:${ultimaCol}1`);
+  const c1 = ws.getCell('A1');
+  c1.value = (e.nome || entidadeNome() || 'Entidade não cadastrada').toUpperCase();
+  c1.font = { bold:true, size:14, color:{argb:'FF16323A'} };
+  c1.alignment = { horizontal:'center' };
+  ws.getRow(1).height = 22;
+  ws.mergeCells(`A2:${ultimaCol}2`);
+  const c2 = ws.getCell('A2');
+  c2.value = `${subtitulo} — gerado em ${new Date().toLocaleDateString('pt-BR')}`;
+  c2.font = { bold:true, size:11, color:{argb:'FF0E6E6E'} };
+  c2.alignment = { horizontal:'center' };
+  ws.getRow(2).height = 18;
+  ws.getRow(3).height = 6;
+  return 4; // próxima linha livre
+}
+/* Escreve uma tabela com cabeçalho colorido e bordas externas/internas a
+   partir da linha indicada. Retorna a próxima linha livre após a tabela. */
+function adicionarTabelaComBordasExcel(ws, linhaInicial, cabecalho, linhas){
+  const numCols = cabecalho.length;
+  cabecalho.forEach((txt,i)=>{
+    const cell = ws.getRow(linhaInicial).getCell(i+1);
+    cell.value = txt;
+    cell.font = { bold:true, color:{argb:'FFFFFFFF'} };
+    cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF0E6E6E'} };
+    cell.alignment = { horizontal:'center', vertical:'middle', wrapText:true };
+  });
+  ws.getRow(linhaInicial).height = 20;
+  linhas.forEach((linha, i)=>{
+    const row = ws.getRow(linhaInicial+1+i);
+    linha.forEach((valor, c)=> row.getCell(c+1).value = valor);
+  });
+  const ultimaLinha = linhaInicial + Math.max(linhas.length,1);
+  const BORDA_FINA = { top:{style:'thin',color:{argb:'FFB7C7C9'}}, left:{style:'thin',color:{argb:'FFB7C7C9'}}, bottom:{style:'thin',color:{argb:'FFB7C7C9'}}, right:{style:'thin',color:{argb:'FFB7C7C9'}} };
+  aplicarBordaIntervalo(ws, linhaInicial, 1, ultimaLinha, numCols, BORDA_FINA);
+  const GROSSA = { style:'medium', color:{argb:'FF16323A'} };
+  for(let col=1; col<=numCols; col++){
+    ws.getCell(linhaInicial,col).border = { ...ws.getCell(linhaInicial,col).border, top:GROSSA };
+    ws.getCell(ultimaLinha,col).border = { ...ws.getCell(ultimaLinha,col).border, bottom:GROSSA };
+  }
+  for(let row=linhaInicial; row<=ultimaLinha; row++){
+    ws.getCell(row,1).border = { ...ws.getCell(row,1).border, left:GROSSA };
+    ws.getCell(row,numCols).border = { ...ws.getCell(row,numCols).border, right:GROSSA };
+  }
+  return ultimaLinha + 2;
+}
+async function exportarDashboardExcel(){
+  showToast('Gerando planilha do painel…');
+  try{
+    const ag = agregadosGerais();
+    const ranking = Object.keys(ag.valorPorForn).map(fid=>({nome:fornecedorNome(fid), valor:ag.valorPorForn[fid], vitorias:ag.vitoriasPorForn[fid]||0})).sort((a,b)=>b.valor-a.valor);
+    const produtos = agregadosPorProduto();
+    const destinos = Object.keys(ag.porDestino).map(d=>({destino:d, ...ag.porDestino[d]})).sort((a,b)=>b.valor-a.valor);
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = entidadeNome();
+    wb.created = new Date();
+
+    // ---- Aba Resumo ----
+    const wsResumo = wb.addWorksheet('Resumo', { views:[{showGridLines:false}] });
+    wsResumo.columns = [{width:32},{width:22}];
+    let linha = adicionarCabecalhoInstitucionalExcel(wsResumo, 2, 'Resumo do Painel de Cotações');
+    linha = adicionarTabelaComBordasExcel(wsResumo, linha, ['Indicador','Valor'], [
+      ['Cotações em andamento', ag.abertas.length],
+      ['Cotações fechadas', ag.fechadas.length],
+      ['Valor total cotado', fmtMoney(ag.valorTotal)],
+      ['Economia estimada', fmtMoney(ag.economiaTotal)],
+      ['% de economia', ag.percentEconomia.toFixed(1)+'%'],
+      ['Ticket médio por cotação', fmtMoney(ag.ticketMedio)],
+      ['Fornecedores ativos', fornecedoresAtivos().length],
+      ['Produtos no catálogo', STATE.produtos.length],
+    ]);
+
+    // ---- Aba Gráficos (imagens capturadas do dashboard) ----
+    const wsGraf = wb.addWorksheet('Gráficos', { views:[{showGridLines:false}] });
+    wsGraf.columns = [{width:14},{width:14},{width:14},{width:14},{width:14},{width:14},{width:14},{width:14}];
+    let linhaGraf = adicionarCabecalhoInstitucionalExcel(wsGraf, 8, 'Gráficos do Painel');
+    for(const g of GRAFICOS_DASHBOARD){
+      const img = capturarGraficoComoImagem(g.id);
+      wsGraf.getCell(linhaGraf, 1).value = g.titulo;
+      wsGraf.getCell(linhaGraf, 1).font = { bold:true, size:11, color:{argb:'FF16323A'} };
+      linhaGraf += 1;
+      if(img){
+        const dados = dataUrlParaImagemExcel(img);
+        if(dados){
+          const dims = await carregarDimensoesImagem(img);
+          const boxW = 620, boxH = 260;
+          let w = boxW, h = boxH;
+          if(dims && dims.width && dims.height){
+            const escala = Math.min(boxW/dims.width, boxH/dims.height);
+            w = Math.round(dims.width*escala); h = Math.round(dims.height*escala);
+          }
+          const imgId = wb.addImage({ base64: dados.base64, extension: dados.extension });
+          wsGraf.addImage(imgId, { tl:{col:0.1, row:linhaGraf-1+0.1}, ext:{width:w, height:h} });
+          linhaGraf += Math.ceil(h/20) + 2;
+        }
+      } else {
+        linhaGraf += 1;
+      }
+    }
+
+    // ---- Aba Fornecedores ----
+    const wsForn = wb.addWorksheet('Fornecedores', { views:[{showGridLines:false}] });
+    wsForn.columns = [{width:6},{width:38},{width:18},{width:20}];
+    let linhaForn = adicionarCabecalhoInstitucionalExcel(wsForn, 4, 'Ranking de Fornecedores');
+    adicionarTabelaComBordasExcel(wsForn, linhaForn, ['#','Fornecedor','Itens vencidos','Valor fornecido'],
+      ranking.length ? ranking.map((r,i)=>[i+1, r.nome, r.vitorias, fmtMoney(r.valor)]) : [['—','Sem dados ainda','—','—']]);
+
+    // ---- Aba Produtos ----
+    const wsProd = wb.addWorksheet('Produtos', { views:[{showGridLines:false}] });
+    wsProd.columns = [{width:40},{width:10},{width:14},{width:16},{width:26},{width:16},{width:26}];
+    let linhaProd = adicionarCabecalhoInstitucionalExcel(wsProd, 7, 'Relatório por Produto/Item');
+    adicionarTabelaComBordasExcel(wsProd, linhaProd, ['Produto','Unid.','Nº cotações','Preço médio','Menor preço','Fornecedor (menor)','Maior preço'],
+      produtos.length ? produtos.map(p=>[p.descricao, p.unidade, p.qtdCotacoes, fmtMoney(p.precoMedio), p.menor?fmtMoney(p.menor.valor):'—', p.menor?fornecedorNome(p.menor.fid):'—', p.maior?fmtMoney(p.maior.valor):'—']) : [['Sem itens cotados ainda','—','—','—','—','—','—']]);
+
+    // ---- Aba Destinos ----
+    const wsDest = wb.addWorksheet('Destinos', { views:[{showGridLines:false}] });
+    wsDest.columns = [{width:34},{width:18},{width:18},{width:18}];
+    let linhaDest = adicionarCabecalhoInstitucionalExcel(wsDest, 4, 'Relatório por Destino/Setor');
+    adicionarTabelaComBordasExcel(wsDest, linhaDest, ['Destino/Setor','Qtd. cotações','Valor total','Economia gerada'],
+      destinos.length ? destinos.map(d=>[d.destino, d.qtd, fmtMoney(d.valor), fmtMoney(d.economia)]) : [['Sem cotações fechadas ainda','—','—','—']]);
+
+    await baixarWorkbook(wb, `Painel_Cotacoes_${hojeISO()}.xlsx`);
+    showToast('Planilha do painel exportada com sucesso!', 'success');
+  }catch(err){
+    showToast('Não foi possível gerar a planilha: '+(err.message||err), 'error');
+  }
+}
+const CORES_GRAFICO = ['#0E6E6E','#D98A3D','#2A6CB7','#5B3FA3','#C1483F','#3E8E5A','#8AA6AE','#B98C3D'];
 function drawDashboardCharts(){
   _dashCharts.forEach(ch=>{ try{ ch.destroy(); }catch(e){} });
   _dashCharts = [];
-  const canvas = document.getElementById('chartGastoMes');
-  if(!canvas || typeof Chart==='undefined') return;
+  if(typeof Chart==='undefined') return;
   const ag = agregadosGerais();
-  const meses = Object.keys(ag.gastoPorMes).sort();
-  const labels = meses.map(m=>{
-    const [ano,mes] = m.split('-');
-    const nomesMes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-    return nomesMes[Number(mes)-1] + '/' + ano.slice(2);
-  });
-  const dados = meses.map(m=>ag.gastoPorMes[m]);
-  const ch = new Chart(canvas, {
-    type:'bar',
-    data:{ labels, datasets:[{ label:'Valor cotado (R$)', data:dados, backgroundColor:'#0E6E6E', borderRadius:5 }] },
-    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmtMoney(v) } } } }
-  });
-  _dashCharts.push(ch);
+  const nomesMes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const labelMes = m=>{ const [ano,mes]=m.split('-'); return nomesMes[Number(mes)-1]+'/'+ano.slice(2); };
+
+  const cvGasto = document.getElementById('chartGastoMes');
+  if(cvGasto){
+    const meses = Object.keys(ag.gastoPorMes).sort();
+    _dashCharts.push(new Chart(cvGasto, {
+      type:'bar',
+      data:{ labels: meses.map(labelMes), datasets:[{ label:'Valor cotado (R$)', data: meses.map(m=>ag.gastoPorMes[m]), backgroundColor:'#0E6E6E', borderRadius:5 }] },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmtMoney(v) } } } }
+    }));
+  }
+  const cvEcon = document.getElementById('chartEconomiaMes');
+  if(cvEcon){
+    const meses = Object.keys(ag.economiaPorMes).sort();
+    _dashCharts.push(new Chart(cvEcon, {
+      type:'line',
+      data:{ labels: meses.map(labelMes), datasets:[{ label:'Economia (R$)', data: meses.map(m=>ag.economiaPorMes[m]), borderColor:'#3E8E5A', backgroundColor:'rgba(62,142,90,.15)', fill:true, tension:.3 }] },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmtMoney(v) } } } }
+    }));
+  }
+  const cvValorForn = document.getElementById('chartValorForn');
+  if(cvValorForn){
+    const rk = Object.keys(ag.valorPorForn).map(fid=>({nome:fornecedorNome(fid), valor:ag.valorPorForn[fid]})).sort((a,b)=>b.valor-a.valor).slice(0,8);
+    _dashCharts.push(new Chart(cvValorForn, {
+      type:'doughnut',
+      data:{ labels: rk.map(r=>r.nome), datasets:[{ data: rk.map(r=>r.valor), backgroundColor: CORES_GRAFICO }] },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom', labels:{boxWidth:11,font:{size:10.5}}}} }
+    }));
+  }
+  const cvDestino = document.getElementById('chartDestino');
+  if(cvDestino){
+    const dest = Object.keys(ag.porDestino).map(d=>({destino:d, ...ag.porDestino[d]})).sort((a,b)=>b.valor-a.valor).slice(0,8);
+    _dashCharts.push(new Chart(cvDestino, {
+      type:'bar',
+      data:{ labels: dest.map(d=>d.destino), datasets:[{ label:'Valor (R$)', data: dest.map(d=>d.valor), backgroundColor:'#2A6CB7', borderRadius:5 }] },
+      options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{ beginAtZero:true, ticks:{ callback:(v)=>fmtMoney(v) } } } }
+    }));
+  }
+  const cvProdutos = document.getElementById('chartProdutos');
+  if(cvProdutos){
+    const top = agregadosPorProduto().slice(0,8);
+    _dashCharts.push(new Chart(cvProdutos, {
+      type:'bar',
+      data:{ labels: top.map(p=>p.descricao), datasets:[{ label:'Nº de cotações', data: top.map(p=>p.qtdCotacoes), backgroundColor:'#D98A3D', borderRadius:5 }] },
+      options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{ beginAtZero:true, ticks:{ stepSize:1 } } } }
+    }));
+  }
 }
 
 /* ============================================================
@@ -2463,9 +2848,138 @@ function viewRelatorios(){
   `;
 }
 
+
 /* ============================================================
-   CADASTRO DE USUÁRIOS (módulo do administrador/master)
+   RELATÓRIO POR FORNECEDOR
    ============================================================ */
+let relFornecedorSelecionado = null;
+function selecionarRelFornecedor(fid){ relFornecedorSelecionado = fid || null; render(); }
+function viewRelFornecedor(){
+  const lista = STATE.fornecedores.slice().sort((a,b)=>normTxt(a.nome).localeCompare(normTxt(b.nome)));
+  const fid = relFornecedorSelecionado || (lista[0] && lista[0].id) || null;
+  const forn = fid ? STATE.fornecedores.find(f=>f.id===fid) : null;
+  const dados = fid ? agregadosPorFornecedor(fid) : null;
+  return `
+    <div class="card">
+      <h2>🚚 Relatório por Fornecedor</h2>
+      <div class="subtitle">Selecione um fornecedor para ver seu desempenho em todas as cotações.</div>
+      <div class="formgrid">
+        <div class="field"><label>Fornecedor</label>
+          <select onchange="selecionarRelFornecedor(this.value)">
+            ${lista.length===0?`<option value="">Nenhum fornecedor cadastrado</option>`:
+              lista.map(f=>`<option value="${f.id}" ${f.id===fid?'selected':''}>${esc(f.nome)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    </div>
+    ${!forn ? `<div class="card"><div class="helpbox">Cadastre fornecedores em <b>Cadastros → Fornecedores</b> para ver este relatório.</div></div>` : `
+    <div class="card">
+      <div class="flexrow" style="margin-bottom:8px;">
+        <h2 style="margin:0;">${esc(forn.nome)}</h2>
+        <button class="btn ghost small" onclick="printReportAsk('relFornPrint','Relatório do Fornecedor - ${esc(forn.nome)}')">🖨️ Imprimir</button>
+      </div>
+      <div id="relFornPrint">
+        ${reportHeaderHTML({numero:'—', solicitante:'—', destino:forn.nome, data:new Date().toLocaleDateString('pt-BR'), rotulo:'Relatório por Fornecedor'})}
+        <div class="resumo-forn-grid" style="margin-bottom:16px;">
+          <div class="stat"><div class="label">Cotações participadas</div><div class="value">${dados.participou.length}</div></div>
+          <div class="stat"><div class="label">Itens cotados</div><div class="value">${dados.itensCotados}</div></div>
+          <div class="stat"><div class="label">Itens vencidos</div><div class="value" style="color:var(--green);">${dados.itensVencidos}</div></div>
+          <div class="stat"><div class="label">Taxa de vitória</div><div class="value">${dados.taxaVitoria.toFixed(1)}%</div></div>
+          <div class="stat"><div class="label">Valor total fornecido</div><div class="value" style="color:var(--teal-dark);">${fmtMoney(dados.valorFornecido)}</div></div>
+        </div>
+        <div class="formgrid" style="margin-bottom:10px;">
+          <div class="field"><label>CNPJ</label><input value="${esc(forn.cnpj)||'—'}" disabled></div>
+          <div class="field"><label>Contato</label><input value="${esc(forn.contato)||'—'}" disabled></div>
+          <div class="field"><label>Telefone</label><input value="${esc(forn.telefone)||'—'}" disabled></div>
+          <div class="field"><label>E-mail</label><input value="${esc(forn.email)||'—'}" disabled></div>
+        </div>
+        <h3 style="margin:0 0 8px;">Histórico de participação</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Cotação</th><th>Destino</th><th>Status</th><th>Itens cotados</th><th>Itens vencidos</th><th>Valor fornecido</th></tr></thead>
+          <tbody>
+            ${dados.historico.length===0?`<tr class="empty-row"><td colspan="6">Este fornecedor ainda não participou de nenhuma cotação.</td></tr>`:
+              dados.historico.map(h=>`<tr>
+                <td>${esc(h.cotacao.numero)}</td>
+                <td>${esc(h.cotacao.destino)||'—'}</td>
+                <td><span class="status-pill ${h.cotacao.status==='FECHADA'?'st-deferido':'st-analise'}">${h.cotacao.status==='FECHADA'?'Fechada':'Em andamento'}</span></td>
+                <td>${h.cotados}</td>
+                <td>${h.venceu}</td>
+                <td>${fmtMoney(h.valor)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table></div>
+      </div>
+    </div>`}
+  `;
+}
+
+/* ============================================================
+   RELATÓRIO POR PRODUTO/ITEM
+   ============================================================ */
+function viewRelProduto(){
+  const dados = agregadosPorProduto();
+  return `
+    <div class="card">
+      <div class="flexrow" style="margin-bottom:8px;">
+        <h2 style="margin:0;">📦 Relatório por Produto/Item</h2>
+        <button class="btn ghost small" onclick="printReportAsk('relProdPrint','Relatório por Produto/Item')">🖨️ Imprimir</button>
+      </div>
+      <div class="subtitle">Consolida todos os itens já cotados no sistema (cotações abertas e fechadas): quantas vezes cada um foi cotado, preço médio, menor e maior preço já registrados.</div>
+      <div id="relProdPrint">
+        ${reportHeaderHTML({numero:'—', solicitante:'—', destino:'Todos', data:new Date().toLocaleDateString('pt-BR'), rotulo:'Relatório por Produto'})}
+        <div class="table-wrap"><table>
+          <thead><tr><th>Produto</th><th>Unid.</th><th>Nº cotações</th><th>Preço médio</th><th>Menor preço registrado</th><th>Maior preço registrado</th></tr></thead>
+          <tbody>
+            ${dados.length===0?`<tr class="empty-row"><td colspan="6">Nenhum item cotado ainda.</td></tr>`:
+              dados.map(p=>`<tr>
+                <td><b>${esc(p.descricao)}</b></td>
+                <td>${esc(p.unidade)}</td>
+                <td>${p.qtdCotacoes}</td>
+                <td>${fmtMoney(p.precoMedio)}</td>
+                <td>${p.menor?fmtMoney(p.menor.valor)+' · '+esc(fornecedorNome(p.menor.fid)):'—'}</td>
+                <td>${p.maior?fmtMoney(p.maior.valor)+' · '+esc(fornecedorNome(p.maior.fid)):'—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================================
+   RELATÓRIO POR DESTINO/SETOR
+   ============================================================ */
+function viewRelDestino(){
+  const ag = agregadosGerais();
+  const dados = Object.keys(ag.porDestino).map(d=>({destino:d, ...ag.porDestino[d]})).sort((a,b)=>b.valor-a.valor);
+  const totalGeral = dados.reduce((s,d)=>s+d.valor,0);
+  return `
+    <div class="card">
+      <div class="flexrow" style="margin-bottom:8px;">
+        <h2 style="margin:0;">🏷️ Relatório por Destino/Setor</h2>
+        <button class="btn ghost small" onclick="printReportAsk('relDestPrint','Relatório por Destino/Setor')">🖨️ Imprimir</button>
+      </div>
+      <div class="subtitle">Quanto cada destino/setor já gastou em cotações fechadas, e a economia gerada em cada um.</div>
+      <div id="relDestPrint">
+        ${reportHeaderHTML({numero:'—', solicitante:'—', destino:'Todos', data:new Date().toLocaleDateString('pt-BR'), rotulo:'Relatório por Destino/Setor'})}
+        <div class="table-wrap"><table>
+          <thead><tr><th>Destino/Setor</th><th>Qtd. cotações fechadas</th><th>Valor total</th><th>% do total geral</th><th>Economia gerada</th></tr></thead>
+          <tbody>
+            ${dados.length===0?`<tr class="empty-row"><td colspan="5">Nenhuma cotação fechada ainda.</td></tr>`:
+              dados.map(d=>`<tr>
+                <td><b>${esc(d.destino)}</b></td>
+                <td>${d.qtd}</td>
+                <td>${fmtMoney(d.valor)}</td>
+                <td>${totalGeral>0?((d.valor/totalGeral)*100).toFixed(1):'0.0'}%</td>
+                <td style="color:var(--green);">${fmtMoney(d.economia)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+  `;
+}
+
 let editingUsuarioId = null;
 function viewUsuarios(){
   if(!isMaster()) return `<div class="card">Acesso restrito ao administrador do sistema.</div>`;
@@ -2694,6 +3208,9 @@ const NAV_BASE = [
   ]},
   {group:'3. Relatórios', items:[
     {id:'relatorios', label:'Economia e Ranking de Fornecedores', icon:'📈'},
+    {id:'relFornecedor', label:'Relatório por Fornecedor', icon:'🚚'},
+    {id:'relProduto', label:'Relatório por Produto', icon:'📦'},
+    {id:'relDestino', label:'Relatório por Destino/Setor', icon:'🏷️'},
   ]},
 ];
 const NAV_ADMIN = [
@@ -2715,6 +3232,9 @@ const PAGE_META = {
   cotacoesAndamento:['Cotações em Andamento','Cotações ainda não fechadas. Clique em uma para continuar de onde parou.'],
   historicoCotacoes:['Histórico de Cotações','Cotações já fechadas, com o mapa comparativo final de cada uma.'],
   relatorios:['Economia e Ranking de Fornecedores','Consolidado de todas as cotações fechadas: economia gerada e ranking por fornecedor.'],
+  relFornecedor:['Relatório por Fornecedor','Desempenho detalhado de um fornecedor específico: participação, taxa de vitória e valor fornecido.'],
+  relProduto:['Relatório por Produto','Consolidado de todos os itens já cotados: frequência, preço médio, menor e maior preço registrados.'],
+  relDestino:['Relatório por Destino/Setor','Quanto cada destino/setor gastou e a economia gerada, entre as cotações fechadas.'],
   usuarios:['Usuários','Cadastre usuários e senhas para acesso ao sistema. Apenas o administrador (master) vê este módulo.'],
   logAcesso:['Log de Acesso','Veja quem usou o sistema: usuário, data, hora início, hora final e comandos acessados. Apenas o administrador (master) vê este módulo.'],
 };
@@ -2831,6 +3351,9 @@ function render(){
   else if(currentView==='cotacoesAndamento') v.innerHTML = viewCotacoesAndamento();
   else if(currentView==='historicoCotacoes') v.innerHTML = viewHistoricoCotacoes();
   else if(currentView==='relatorios') v.innerHTML = viewRelatorios();
+  else if(currentView==='relFornecedor') v.innerHTML = viewRelFornecedor();
+  else if(currentView==='relProduto') v.innerHTML = viewRelProduto();
+  else if(currentView==='relDestino') v.innerHTML = viewRelDestino();
   else if(currentView==='usuarios') v.innerHTML = viewUsuarios();
   else if(currentView==='logAcesso') v.innerHTML = viewLogAcesso();
   const VIEWS_COM_FORM = ['entidade','fornecedores','produtos','destinos','novaCotacao'];
