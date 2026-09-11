@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script id="scriptChartJs" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js" onload="if(typeof currentView!=='undefined' && currentView==='dashboard'){ try{ render(); }catch(e){} }"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
@@ -905,16 +905,24 @@ function trocarCodigoAcesso(){
 
 /* ============================================================
    VERSÃO DO APLICATIVO
+   Regra: ao publicar qualquer alteração no sistema, atualize APP_DATA para a
+   data da alteração e some 1 a APP_ALTERACAO (reinicie para 1 sempre que
+   mudar de mês/ano em relação à última alteração). O número exibido é
+   "<mês desde a criação>.<alterações no mês>.<ano>".
    ============================================================ */
 const APP_CRIACAO = { mes: 9, ano: 2026 };
-const APP_ALTERACAO = 0;
-const APP_DATA = '2026-09-09';
+const APP_ALTERACAO = 4;
+const APP_DATA = '2026-09-11';
 function appVersao(){
   const p = APP_DATA.split('-').map(Number);
   const ano = p[0], mes = p[1];
   const seqMes = (ano - APP_CRIACAO.ano)*12 + (mes - APP_CRIACAO.mes) + 1;
   const n = APP_ALTERACAO===0 ? '0' : String(APP_ALTERACAO).padStart(2,'0');
   return `${seqMes}.${n}.${ano}`;
+}
+function atualizarVersaoLogin(){
+  const lv = document.getElementById('loginVersao');
+  if(lv) lv.textContent = 'Versão ' + appVersao();
 }
 
 /* ============================================================
@@ -2740,59 +2748,91 @@ async function exportarDashboardExcel(){
   }
 }
 const CORES_GRAFICO = ['#0E6E6E','#D98A3D','#2A6CB7','#5B3FA3','#C1483F','#3E8E5A','#8AA6AE','#B98C3D'];
+function mostrarAvisoGrafico(canvasId, msg){
+  const cv = document.getElementById(canvasId);
+  if(!cv || !cv.parentElement) return;
+  cv.style.display = 'none';
+  let aviso = cv.parentElement.querySelector('.chart-aviso');
+  if(!aviso){
+    aviso = document.createElement('div');
+    aviso.className = 'chart-aviso';
+    aviso.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:var(--ink-soft);font-size:12.5px;text-align:center;padding:0 10px;';
+    cv.parentElement.appendChild(aviso);
+  }
+  aviso.textContent = msg;
+}
+function limparAvisoGrafico(canvasId){
+  const cv = document.getElementById(canvasId);
+  if(!cv || !cv.parentElement) return;
+  cv.style.display = '';
+  const aviso = cv.parentElement.querySelector('.chart-aviso');
+  if(aviso) aviso.remove();
+}
 function drawDashboardCharts(){
+  // Espera o navegador terminar o layout da tela (as .chartbox recém-inseridas)
+  // antes de medir/desenhar os gráficos — evita canvases "nascerem" com 0px.
+  requestAnimationFrame(()=> requestAnimationFrame(desenharGraficosDashboardAgora));
+}
+function desenharGraficosDashboardAgora(){
   _dashCharts.forEach(ch=>{ try{ ch.destroy(); }catch(e){} });
   _dashCharts = [];
-  if(typeof Chart==='undefined') return;
+  if(currentView!=='dashboard') return;
+  if(typeof Chart==='undefined'){
+    ['chartGastoMes','chartEconomiaMes','chartValorForn','chartDestino','chartProdutos'].forEach(id=>
+      mostrarAvisoGrafico(id, 'Não foi possível carregar a biblioteca de gráficos. Verifique sua conexão e recarregue a página.'));
+    return;
+  }
   const ag = agregadosGerais();
   const nomesMes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   const labelMes = m=>{ const [ano,mes]=m.split('-'); return nomesMes[Number(mes)-1]+'/'+ano.slice(2); };
 
-  const cvGasto = document.getElementById('chartGastoMes');
-  if(cvGasto){
-    const meses = Object.keys(ag.gastoPorMes).sort();
-    _dashCharts.push(new Chart(cvGasto, {
-      type:'bar',
-      data:{ labels: meses.map(labelMes), datasets:[{ label:'Valor cotado (R$)', data: meses.map(m=>ag.gastoPorMes[m]), backgroundColor:'#0E6E6E', borderRadius:5 }] },
-      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmtMoney(v) } } } }
-    }));
+  function criarGrafico(canvasId, semDados, montarConfig){
+    if(semDados){ mostrarAvisoGrafico(canvasId, 'Ainda não há dados suficientes para este gráfico.'); return; }
+    limparAvisoGrafico(canvasId);
+    const cv = document.getElementById(canvasId);
+    if(!cv) return;
+    try{
+      _dashCharts.push(new Chart(cv, montarConfig()));
+    }catch(err){
+      console.error('Erro ao desenhar gráfico '+canvasId+':', err);
+      mostrarAvisoGrafico(canvasId, 'Não foi possível desenhar este gráfico.');
+    }
   }
-  const cvEcon = document.getElementById('chartEconomiaMes');
-  if(cvEcon){
-    const meses = Object.keys(ag.economiaPorMes).sort();
-    _dashCharts.push(new Chart(cvEcon, {
-      type:'line',
-      data:{ labels: meses.map(labelMes), datasets:[{ label:'Economia (R$)', data: meses.map(m=>ag.economiaPorMes[m]), borderColor:'#3E8E5A', backgroundColor:'rgba(62,142,90,.15)', fill:true, tension:.3 }] },
-      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmtMoney(v) } } } }
-    }));
-  }
-  const cvValorForn = document.getElementById('chartValorForn');
-  if(cvValorForn){
-    const rk = Object.keys(ag.valorPorForn).map(fid=>({nome:fornecedorNome(fid), valor:ag.valorPorForn[fid]})).sort((a,b)=>b.valor-a.valor).slice(0,8);
-    _dashCharts.push(new Chart(cvValorForn, {
-      type:'doughnut',
-      data:{ labels: rk.map(r=>r.nome), datasets:[{ data: rk.map(r=>r.valor), backgroundColor: CORES_GRAFICO }] },
-      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom', labels:{boxWidth:11,font:{size:10.5}}}} }
-    }));
-  }
-  const cvDestino = document.getElementById('chartDestino');
-  if(cvDestino){
-    const dest = Object.keys(ag.porDestino).map(d=>({destino:d, ...ag.porDestino[d]})).sort((a,b)=>b.valor-a.valor).slice(0,8);
-    _dashCharts.push(new Chart(cvDestino, {
-      type:'bar',
-      data:{ labels: dest.map(d=>d.destino), datasets:[{ label:'Valor (R$)', data: dest.map(d=>d.valor), backgroundColor:'#2A6CB7', borderRadius:5 }] },
-      options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{ beginAtZero:true, ticks:{ callback:(v)=>fmtMoney(v) } } } }
-    }));
-  }
-  const cvProdutos = document.getElementById('chartProdutos');
-  if(cvProdutos){
-    const top = agregadosPorProduto().slice(0,8);
-    _dashCharts.push(new Chart(cvProdutos, {
-      type:'bar',
-      data:{ labels: top.map(p=>p.descricao), datasets:[{ label:'Nº de cotações', data: top.map(p=>p.qtdCotacoes), backgroundColor:'#D98A3D', borderRadius:5 }] },
-      options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{ beginAtZero:true, ticks:{ stepSize:1 } } } }
-    }));
-  }
+
+  const mesesGasto = Object.keys(ag.gastoPorMes).sort();
+  criarGrafico('chartGastoMes', mesesGasto.length===0, ()=>({
+    type:'bar',
+    data:{ labels: mesesGasto.map(labelMes), datasets:[{ label:'Valor cotado (R$)', data: mesesGasto.map(m=>ag.gastoPorMes[m]), backgroundColor:'#0E6E6E', borderRadius:5 }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmtMoney(v) } } } }
+  }));
+
+  const mesesEcon = Object.keys(ag.economiaPorMes).sort();
+  criarGrafico('chartEconomiaMes', mesesEcon.length===0, ()=>({
+    type:'line',
+    data:{ labels: mesesEcon.map(labelMes), datasets:[{ label:'Economia (R$)', data: mesesEcon.map(m=>ag.economiaPorMes[m]), borderColor:'#3E8E5A', backgroundColor:'rgba(62,142,90,.15)', fill:true, tension:.3 }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmtMoney(v) } } } }
+  }));
+
+  const rkValorForn = Object.keys(ag.valorPorForn).map(fid=>({nome:fornecedorNome(fid), valor:ag.valorPorForn[fid]})).sort((a,b)=>b.valor-a.valor).slice(0,8);
+  criarGrafico('chartValorForn', rkValorForn.length===0, ()=>({
+    type:'doughnut',
+    data:{ labels: rkValorForn.map(r=>r.nome), datasets:[{ data: rkValorForn.map(r=>r.valor), backgroundColor: CORES_GRAFICO }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom', labels:{boxWidth:11,font:{size:10.5}}}} }
+  }));
+
+  const dest = Object.keys(ag.porDestino).map(d=>({destino:d, ...ag.porDestino[d]})).sort((a,b)=>b.valor-a.valor).slice(0,8);
+  criarGrafico('chartDestino', dest.length===0, ()=>({
+    type:'bar',
+    data:{ labels: dest.map(d=>d.destino), datasets:[{ label:'Valor (R$)', data: dest.map(d=>d.valor), backgroundColor:'#2A6CB7', borderRadius:5 }] },
+    options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{ beginAtZero:true, ticks:{ callback:(v)=>fmtMoney(v) } } } }
+  }));
+
+  const top = agregadosPorProduto().slice(0,8);
+  criarGrafico('chartProdutos', top.length===0, ()=>({
+    type:'bar',
+    data:{ labels: top.map(p=>p.descricao), datasets:[{ label:'Nº de cotações', data: top.map(p=>p.qtdCotacoes), backgroundColor:'#D98A3D', borderRadius:5 }] },
+    options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{ beginAtZero:true, ticks:{ stepSize:1 } } } }
+  }));
 }
 
 /* ============================================================
@@ -3397,6 +3437,7 @@ async function iniciarComLogin(){
     const u = USERS_STATE.usuarios.find(x=>x.usuario===usuarioSalvo);
     if(u){ iniciarSessaoUsuario(u); return; }
   }
+  atualizarVersaoLogin();
   document.getElementById('loginScreen').style.display = 'flex';
 }
 
@@ -3425,8 +3466,7 @@ document.addEventListener('keydown', function(e){
 });
 
 (function init(){
-  const lv = document.getElementById('loginVersao');
-  if(lv) lv.textContent = 'Versão ' + appVersao();
+  atualizarVersaoLogin();
   if(!firebaseOk){
     document.getElementById('loadingScreen').style.display = 'none';
     document.getElementById('configScreen').style.display = 'flex';
