@@ -1516,6 +1516,19 @@ function deleteDestino(id){
    Usado tanto para importar catálogo de produtos quanto itens de uma cotação e
    tabelas de preços de fornecedores. Retorna sempre um array de objetos, com as
    chaves em MAIÚSCULAS (nomes das colunas do arquivo). */
+/* Lê um campo de uma linha importada (planilha/CSV) comparando os nomes das
+   colunas sem diferenciar maiúsculas/minúsculas nem acentos — evita falhas de
+   importação quando a coluna do arquivo é, por exemplo, "Valor Unitário" mas
+   o código procura por "VALOR UNITARIO" (sem acento). */
+function pegarCampoNormalizado(obj, candidatos){
+  const chaves = Object.keys(obj||{});
+  for(const candidato of candidatos){
+    const alvo = normTxt(candidato);
+    const chave = chaves.find(k=> normTxt(k)===alvo);
+    if(chave!==undefined && obj[chave]!=='') return obj[chave];
+  }
+  return undefined;
+}
 function lerArquivoTabular(file){
   return new Promise((resolve, reject)=>{
     const nome = (file.name||'').toLowerCase();
@@ -1538,16 +1551,37 @@ function lerArquivoTabular(file){
         try{
           const wb = XLSX.read(e.target.result, {type:'array'});
           const ws = wb.Sheets[wb.SheetNames[0]];
-          const json = XLSX.utils.sheet_to_json(ws, {defval:''});
-          const linhas = json.map(row=>{
-            const o = {}; Object.keys(row).forEach(k=> o[String(k).trim().toUpperCase()] = row[k]);
-            return o;
-          });
+          const linhas = linhasDoWorksheet(ws);
           resolve(linhas);
         }catch(err){ reject(new Error('Não foi possível ler esta planilha: ' + err.message)); }
       };
       reader.readAsArrayBuffer(file);
     }
+  });
+}
+/* Converte um worksheet em objetos {COLUNA: valor}, localizando sozinho a
+   linha real de cabeçalho da tabela (ID/DESCRIÇÃO/UNIDADE/QUANTIDADE/VALOR
+   UNITÁRIO). Isso permite ler tanto planilhas simples (cabeçalho na linha 1)
+   quanto fichas geradas pelo próprio sistema, que trazem um bloco de
+   cabeçalho institucional (nome da entidade, brasão/logo, dados da cotação)
+   acima da tabela de itens. */
+const PALAVRAS_CABECALHO_TABELA = ['descricao','descricao do produto','produto','valor unitario','valor unit','vlr unit','preco','valor','unidade','quantidade','id'];
+function linhasDoWorksheet(ws){
+  const aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', blankrows:false});
+  let idxCabecalho = 0, melhorPontuacao = -1;
+  aoa.forEach((linha, i)=>{
+    const celulas = linha.map(v=>normTxt(v));
+    const pontuacao = celulas.filter(v=> PALAVRAS_CABECALHO_TABELA.includes(v)).length;
+    if(pontuacao > melhorPontuacao){ melhorPontuacao = pontuacao; idxCabecalho = i; }
+  });
+  // Exige ao menos 2 colunas reconhecidas para considerar uma linha como cabeçalho de verdade;
+  // caso contrário, mantém o comportamento antigo (assume que a linha 1 é o cabeçalho).
+  if(melhorPontuacao < 2) idxCabecalho = 0;
+  const cabecalho = (aoa[idxCabecalho]||[]).map(v=> String(v||'').trim().toUpperCase());
+  return aoa.slice(idxCabecalho+1).map(linha=>{
+    const o = {};
+    cabecalho.forEach((chave,i)=>{ if(chave) o[chave] = linha[i]!==undefined ? linha[i] : ''; });
+    return o;
   });
 }
 
@@ -1769,9 +1803,10 @@ function importarPrecosFornecedor(event, fid){
   lerArquivoTabular(file).then(linhas=>{
     let ok=0, semMatch=0;
     linhas.forEach(l=>{
-      const descricao = (l['DESCRICAO']||l['DESCRIÇÃO']||l['DESCRIÇÃO DO PRODUTO']||l['PRODUTO']||'').toString().trim();
-      const valor = Number(l['VALOR UNITARIO']||l['VALOR UNIT.']||l['VALOR UNIT']||l['VLR UNIT.']||l['PREÇO']||l['PRECO']||l['VALOR']||0);
-      if(!descricao || !valor || valor<=0) return;
+      const descricao = String(pegarCampoNormalizado(l, ['DESCRICAO','DESCRIÇÃO','DESCRIÇÃO DO PRODUTO','PRODUTO'])||'').trim();
+      if(!descricao) return;
+      // Valor em branco, não numérico ou zero é importado como R$ 0,00 (não é descartado).
+      const valor = Number(pegarCampoNormalizado(l, ['VALOR UNITARIO','VALOR UNIT.','VALOR UNIT','VLR UNIT.','PREÇO','PRECO','VALOR']))||0;
       const item = c.itens.find(it=>normTxt(it.descricao)===normTxt(descricao));
       if(item){ item.precos[fid] = valor; ok++; } else { semMatch++; }
     });
