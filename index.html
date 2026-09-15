@@ -56,6 +56,11 @@ body{margin:0;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antia
 .brand-mark{width:34px;height:34px;border-radius:9px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:18px;}
 .brand-title{font-size:13.5px;font-weight:700;line-height:1.25;letter-spacing:.2px;}
 .brand-sub{font-size:10.5px;opacity:.75;margin-top:1px;}
+.boas-vindas-box{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 10px;margin:0 2px 10px;font-size:12px;line-height:1.35;color:#fff;animation:boasVindasIn .35s ease;}
+.boas-vindas-box span{flex:1;}
+.boas-vindas-box button{background:none;border:none;color:#fff;opacity:.7;cursor:pointer;font-size:12px;padding:2px 4px;line-height:1;}
+.boas-vindas-box button:hover{opacity:1;}
+@keyframes boasVindasIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
 
 nav.navlist{display:flex;flex-direction:column;gap:3px;}
 .navgroup-label{font-size:10px;text-transform:uppercase;letter-spacing:.09em;opacity:.55;margin:14px 10px 6px;}
@@ -517,6 +522,10 @@ table.matriz tr.linha-baixa-concorrencia td.desc-col::after{content:' ⚠️';}
         <div class="brand-sub" id="brandFantasia">Prefeitura Municipal de Jaborandi</div>
       </div>
     </div>
+    <div id="boasVindasBox" class="boas-vindas-box" style="display:none;">
+      <span id="boasVindasTexto"></span>
+      <button type="button" onclick="fecharBoasVindas()" title="Fechar" aria-label="Fechar">✕</button>
+    </div>
     <div class="navsearch">
       <span class="navsearch-ic">🔎</span>
       <input id="navBusca" type="search" placeholder="Buscar módulo…" autocomplete="off" oninput="setNavBusca(this.value)">
@@ -723,6 +732,7 @@ async function garantirUsuarioMaster(){
   USERS_STATE.usuarios.forEach(u=>{
     if(!u.perfil){ u.perfil = u.master ? 'master' : 'comum'; mudou = true; }
     if(u.bloqueado===undefined){ u.bloqueado = false; }
+    if(u.ativo===undefined){ u.ativo = true; mudou = true; }
   });
   const existeJoao = USERS_STATE.usuarios.some(u=>u.usuario==='joao');
   if(!existeJoao){
@@ -778,6 +788,10 @@ async function submitLogin(){
     erroEl.textContent = 'Este usuário está bloqueado após várias tentativas incorretas. Fale com o administrador do sistema para desbloquear.';
     return;
   }
+  if(u && u.ativo===false){
+    erroEl.textContent = 'Este usuário está inativo. Fale com o administrador do sistema para reativar o acesso.';
+    return;
+  }
   const hash = await hashSenha(senhaInput);
   const senhaCorreta = u && hash===u.senhaHash;
   if(!senhaCorreta){
@@ -794,6 +808,7 @@ async function submitLogin(){
   }
   limparTentativasLogin(usuarioInput);
   erroEl.textContent = '';
+  boasVindasPendente = true;
   iniciarSessaoUsuario(u);
 }
 function esqueciMinhaSenha(){
@@ -830,6 +845,58 @@ function esqueciMinhaSenha(){
   );
   window.location.href = `mailto:${emailsAdmins.join(',')}?subject=${assunto}&body=${corpo}`;
   showToast('Pedido registrado. Abrindo seu programa de e-mail para enviar ao administrador...');
+}
+/* ---------------- Mensagem de boas-vindas (texto + voz) ao entrar no sistema ---------------- */
+let boasVindasPendente = false;
+let boasVindasTimer = null;
+function saudacaoPorHorario(){
+  const h = new Date().getHours();
+  if(h < 12) return 'Bom dia';
+  if(h < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+function mostrarBoasVindas(){
+  if(!currentUser) return;
+  const box = document.getElementById('boasVindasBox');
+  const texto = document.getElementById('boasVindasTexto');
+  if(!box || !texto) return;
+  const nome = currentUser.nome || currentUser.usuario;
+  const mensagem = `${saudacaoPorHorario()}! ${nome}`;
+  texto.textContent = mensagem;
+  box.style.display = 'flex';
+  clearTimeout(boasVindasTimer);
+  boasVindasTimer = setTimeout(fecharBoasVindas, 10000);
+  falarBoasVindas(mensagem);
+}
+function fecharBoasVindas(){
+  const box = document.getElementById('boasVindasBox');
+  if(box) box.style.display = 'none';
+  clearTimeout(boasVindasTimer);
+  try{ window.speechSynthesis && window.speechSynthesis.cancel(); }catch(e){}
+}
+function falarBoasVindas(mensagem){
+  try{
+    if(!('speechSynthesis' in window)) return;
+    const falar = ()=>{
+      const utter = new SpeechSynthesisUtterance(mensagem);
+      utter.lang = 'pt-BR';
+      utter.rate = 1;
+      utter.pitch = 0.85; // tom mais grave, para soar como voz masculina
+      const vozes = window.speechSynthesis.getVoices();
+      const vozPt = vozes.filter(v=> (v.lang||'').toLowerCase().startsWith('pt'));
+      const nomesVozMasculina = ['male','homem','masculin','ricardo','daniel','felipe','antonio','diego','joao','google português do brasil'];
+      let voz = vozPt.find(v=> nomesVozMasculina.some(n=> (v.name||'').toLowerCase().includes(n)));
+      if(!voz) voz = vozPt.find(v=> !/female|mulher|feminin|maria|luciana|helena|camila/i.test(v.name||''));
+      if(!voz) voz = vozPt[0];
+      if(voz) utter.voice = voz;
+      window.speechSynthesis.speak(utter);
+    };
+    if(window.speechSynthesis.getVoices().length){
+      falar();
+    } else {
+      window.speechSynthesis.addEventListener('voiceschanged', falar, { once:true });
+    }
+  }catch(e){ /* sem áudio disponível — ignora silenciosamente */ }
 }
 function iniciarSessaoUsuario(u){
   currentUser = u;
@@ -933,6 +1000,7 @@ let STATE = {
               brasao:'', brasaoPos:'esquerda', logo:'', logoPos:'direita' },
   fornecedores: [],   // {id, nome, contato, telefone, email, cnpj, categoria, ativo}
   produtos: [],       // {id, descricao, unidade, categoria} — catálogo reutilizável
+  categoriasProdutos: [], // ['Medicamentos','Material Hospitalar','Gêneros Alimentícios',...] — tipos de categoria do catálogo
   destinos: [],       // {id, nome} — setor/destino da cotação (ex.: Farmácia Social/Judicial)
   cotacoes: [],       // ver estrutura completa em novaCotacaoObjeto()
   proximoNumero: 1,
@@ -944,6 +1012,8 @@ let editingProdutoId = null;
 let editingDestinoId = null;
 let cotacaoAbertaId = null;   // cotação sendo editada em "novaCotacao"/"cotacaoAberta"
 let filtroCotacoes = { termo:'', status:'' };
+let filtroProdutos = { termo:'', categoria:'', unidade:'' };
+let novaCategoriaProdutoNome = '';
 
 async function loadState(){
   if(!firebaseOk) { garantirModulosNovos(); return; }
@@ -986,6 +1056,12 @@ function garantirModulosNovos(){
   if(STATE.entidade.logoPos!=='esquerda' && STATE.entidade.logoPos!=='direita') STATE.entidade.logoPos = 'direita';
   if(!Array.isArray(STATE.fornecedores)) STATE.fornecedores = [];
   if(!Array.isArray(STATE.produtos)) STATE.produtos = [];
+  if(!Array.isArray(STATE.categoriasProdutos)) STATE.categoriasProdutos = [];
+  STATE.produtos.forEach(p=>{
+    const c = (p.categoria||'').trim();
+    if(c && !STATE.categoriasProdutos.some(x=>normTxt(x)===normTxt(c))) STATE.categoriasProdutos.push(c);
+  });
+  STATE.categoriasProdutos = STATE.categoriasProdutos.filter(c=>c && c.trim()).sort((a,b)=>normTxt(a).localeCompare(normTxt(b)));
   if(!Array.isArray(STATE.destinos)) STATE.destinos = [];
   if(!Array.isArray(STATE.cotacoes)) STATE.cotacoes = [];
   if(!STATE.proximoNumero) STATE.proximoNumero = 1;
@@ -1358,16 +1434,45 @@ function deleteFornecedor(id){
    ============================================================ */
 function viewProdutos(){
   const editing = editingProdutoId ? STATE.produtos.find(p=>p.id===editingProdutoId) : null;
-  const lista = STATE.produtos.slice().sort((a,b)=> normTxt(a.descricao).localeCompare(normTxt(b.descricao)));
+  const categorias = STATE.categoriasProdutos.slice().sort((a,b)=>normTxt(a).localeCompare(normTxt(b)));
+  let lista = STATE.produtos.slice();
+  const fTermo = normTxt(filtroProdutos.termo);
+  const fCategoria = filtroProdutos.categoria;
+  const fUnidade = normTxt(filtroProdutos.unidade);
+  if(fTermo) lista = lista.filter(p=> normTxt(p.descricao).includes(fTermo));
+  if(fCategoria) lista = lista.filter(p=> (p.categoria||'')===fCategoria);
+  if(fUnidade) lista = lista.filter(p=> normTxt(p.unidade).includes(fUnidade));
+  lista = lista.sort((a,b)=> normTxt(a.descricao).localeCompare(normTxt(b.descricao)));
   return `
+    <div class="card edit-only">
+      <h2>🏷️ Categorias de produtos</h2>
+      <div class="subtitle">Este catálogo pode ser usado para cotar qualquer tipo de produto — medicamentos, material hospitalar, gêneros alimentícios, materiais escolares, etc. Crie aqui os tipos de categoria que fizerem sentido para a sua entidade.</div>
+      <div class="flexrow" style="gap:8px;">
+        <input id="novaCategoriaProduto" value="${esc(novaCategoriaProdutoNome)}" oninput="novaCategoriaProdutoNome=this.value" placeholder="Ex: Gêneros Alimentícios" style="flex:1;min-width:180px;" onkeydown="if(event.key==='Enter'){event.preventDefault();addCategoriaProduto();}">
+        <button class="btn secondary small" onclick="addCategoriaProduto()">+ Adicionar categoria</button>
+      </div>
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
+        ${categorias.length===0 ? `<div class="muted" style="font-size:12.5px;">Nenhuma categoria cadastrada ainda.</div>` :
+          categorias.map(c=>`
+            <span class="badge naoinformado" style="display:inline-flex;align-items:center;gap:6px;padding:6px 8px;">
+              ${esc(c)}
+              <a href="#" onclick="renomearCategoriaProduto('${esc(c).replace(/'/g,"\\'")}');return false;" title="Renomear categoria" style="text-decoration:none;">✏️</a>
+              <a href="#" onclick="excluirCategoriaProduto('${esc(c).replace(/'/g,"\\'")}');return false;" title="Excluir categoria" style="text-decoration:none;">🗑</a>
+            </span>`).join('')}
+      </div>
+    </div>
     <div class="card edit-only">
       <h2>${editing ? '✏️ Editar produto' : '+ Novo produto'}</h2>
       <div class="subtitle">Cadastre aqui os produtos mais usados para reaproveitar ao montar uma nova cotação (agiliza a digitação).</div>
       <div class="formgrid">
         <div class="field half"><label>Descrição do produto</label><input id="prodDescricao" value="${editing?esc(editing.descricao):''}" placeholder="Ex: Dipirona 500mg com 10cp"></div>
         <div class="field"><label>Unidade padrão</label><input id="prodUnidade" value="${editing?esc(editing.unidade):''}" placeholder="Ex: CX, FR, UN, KG..."></div>
-        <div class="field"><label>Categoria</label><input id="prodCategoria" value="${editing?esc(editing.categoria||''):''}" placeholder="Ex: Medicamentos"></div>
+        <div class="field"><label>Categoria</label><select id="prodCategoria">
+          <option value="">— Selecione —</option>
+          ${categorias.map(c=>`<option value="${esc(c)}" ${editing && editing.categoria===c ?'selected':''}>${esc(c)}</option>`).join('')}
+        </select></div>
       </div>
+      ${categorias.length===0?`<div class="helpbox" style="margin-top:6px;">Cadastre pelo menos uma categoria acima para poder selecioná-la aqui.</div>`:''}
       <div style="margin-top:14px;display:flex;gap:8px;">
         ${editing
           ? `<button class="btn" onclick="saveProduto()">💾 Salvar alterações</button><button class="btn secondary" onclick="cancelEditProduto()">Cancelar</button>`
@@ -1385,12 +1490,20 @@ function viewProdutos(){
         <h2 style="margin:0;">Produtos cadastrados (${lista.length})</h2>
         <button class="btn ghost small" onclick="printReportAsk('produtosPrint','Catálogo de Produtos')">🖨️ Imprimir</button>
       </div>
+      <div class="formgrid no-print" style="margin-bottom:10px;">
+        <div class="field"><label>Buscar por descrição</label><input value="${esc(filtroProdutos.termo)}" oninput="setFiltroProdutos('termo', this.value)" placeholder="Ex: dipirona, caneta..."></div>
+        <div class="field"><label>Filtrar por categoria</label><select onchange="setFiltroProdutos('categoria', this.value)">
+          <option value="">Todas as categorias</option>
+          ${categorias.map(c=>`<option value="${esc(c)}" ${fCategoria===c?'selected':''}>${esc(c)}</option>`).join('')}
+        </select></div>
+        <div class="field"><label>Filtrar por unidade</label><input value="${esc(filtroProdutos.unidade)}" oninput="setFiltroProdutos('unidade', this.value)" placeholder="Ex: CX, UN, KG..."></div>
+      </div>
       <div id="produtosPrint">
         ${reportBrandRowHTML()}
         <div class="table-wrap"><table>
           <thead><tr><th>Descrição</th><th>Unidade</th><th>Categoria</th><th class="no-print"></th></tr></thead>
           <tbody>
-            ${lista.length===0 ? `<tr class="empty-row"><td colspan="4">Nenhum produto cadastrado.</td></tr>` :
+            ${lista.length===0 ? `<tr class="empty-row"><td colspan="4">Nenhum produto encontrado.</td></tr>` :
               lista.map(p=>`
               <tr>
                 <td><b>${esc(p.descricao)}</b></td>
@@ -1406,6 +1519,43 @@ function viewProdutos(){
       </div>
     </div>
   `;
+}
+function setFiltroProdutos(campo, valor){ filtroProdutos[campo] = valor; render(); }
+function addCategoriaProduto(){
+  if(semPermissao('produtos')) return;
+  const nome = (novaCategoriaProdutoNome||'').trim();
+  if(!nome){ showToast('Digite o nome da categoria.'); return; }
+  if(STATE.categoriasProdutos.some(c=>normTxt(c)===normTxt(nome))){ showToast('Já existe uma categoria com esse nome.'); return; }
+  STATE.categoriasProdutos.push(nome);
+  STATE.categoriasProdutos.sort((a,b)=>normTxt(a).localeCompare(normTxt(b)));
+  novaCategoriaProdutoNome = '';
+  saveState(true); render();
+  showToast('Categoria adicionada.','success');
+}
+function renomearCategoriaProduto(nomeAtual){
+  if(semPermissao('produtos')) return;
+  const novoNome = prompt('Novo nome para a categoria:', nomeAtual);
+  if(!novoNome) return;
+  const nome = novoNome.trim();
+  if(!nome || nome===nomeAtual) return;
+  if(STATE.categoriasProdutos.some(c=>normTxt(c)===normTxt(nome))){ showToast('Já existe uma categoria com esse nome.'); return; }
+  const idx = STATE.categoriasProdutos.findIndex(c=>c===nomeAtual);
+  if(idx>-1) STATE.categoriasProdutos[idx] = nome;
+  STATE.produtos.forEach(p=>{ if(p.categoria===nomeAtual) p.categoria = nome; });
+  STATE.categoriasProdutos.sort((a,b)=>normTxt(a).localeCompare(normTxt(b)));
+  saveState(true); render();
+  showToast('Categoria renomeada.','success');
+}
+function excluirCategoriaProduto(nome){
+  if(semPermissao('produtos')) return;
+  const qtd = STATE.produtos.filter(p=>p.categoria===nome).length;
+  const aviso = qtd>0 ? `Esta categoria está sendo usada em ${qtd} produto(s) — eles ficarão sem categoria. ` : '';
+  if(!confirm(`${aviso}Deseja excluir a categoria "${nome}"?`)) return;
+  STATE.categoriasProdutos = STATE.categoriasProdutos.filter(c=>c!==nome);
+  STATE.produtos.forEach(p=>{ if(p.categoria===nome) p.categoria = ''; });
+  if(filtroProdutos.categoria===nome) filtroProdutos.categoria = '';
+  saveState(true); render();
+  showToast('Categoria excluída.','success');
 }
 function saveProduto(){
   if(semPermissao('produtos')) return;
@@ -1449,9 +1599,11 @@ function importarProdutosArquivo(event){
       const unidade = (l['UNIDADE']||l['UNID.']||l['UNID']||'').toString().trim();
       const categoria = (l['CATEGORIA']||'').toString().trim();
       if(STATE.produtos.some(p=>normTxt(p.descricao)===normTxt(descricao))) return;
+      if(categoria && !STATE.categoriasProdutos.some(c=>normTxt(c)===normTxt(categoria))) STATE.categoriasProdutos.push(categoria);
       STATE.produtos.push({ id: uid(), descricao, unidade, categoria });
       add++;
     });
+    STATE.categoriasProdutos.sort((a,b)=>normTxt(a).localeCompare(normTxt(b)));
     saveState(true); render();
     showToast(`${add} produto(s) importado(s) para o catálogo.`, 'success');
   }).catch(err=>{
@@ -3050,16 +3202,21 @@ function viewUsuarios(){
     <div class="card">
       <h2>Usuários cadastrados</h2>
       <div class="table-wrap"><table>
-        <thead><tr><th>Usuário</th><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Usuário</th><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Bloqueio</th><th>Situação</th><th></th></tr></thead>
         <tbody>
-          ${USERS_STATE.usuarios.length===0 ? `<tr class="empty-row"><td colspan="6">Nenhum usuário cadastrado.</td></tr>` :
+          ${USERS_STATE.usuarios.length===0 ? `<tr class="empty-row"><td colspan="7">Nenhum usuário cadastrado.</td></tr>` :
             USERS_STATE.usuarios.map(u=>`
             <tr>
               <td><b>${esc(u.usuario)}</b></td>
               <td>${esc(u.nome)||'—'}</td>
               <td>${esc(u.email)||'—'}</td>
               <td>${u.perfil==='master'?'<span class="badge ativo">Administrador</span>':u.perfil==='cotador'?'<span class="badge terceirizado">Cotador</span>':'<span class="badge naoinformado">Usuário comum</span>'}</td>
-              <td>${u.bloqueado?'<span class="badge inativo">Bloqueado</span>':'<span class="badge ativo">Ativo</span>'}</td>
+              <td>${u.bloqueado?'<span class="badge inativo">Bloqueado</span>':'<span class="badge ativo">Normal</span>'}</td>
+              <td>
+                <a href="#" onclick="toggleAtivoUsuario('${u.id}');return false;" title="Clique para alternar entre ativo e inativo" style="text-decoration:none;">
+                  ${u.ativo!==false?'<span class="badge ativo">✔ Ativo</span>':'<span class="badge inativo">⏸ Inativo</span>'}
+                </a>
+              </td>
               <td>
                 <button class="btn ghost small" onclick="editUsuario('${u.id}')">✏️ editar</button>
                 ${u.bloqueado?`<button class="btn ghost small" onclick="desbloquearUsuario('${u.id}')">🔓 desbloquear</button>`:''}
@@ -3068,6 +3225,7 @@ function viewUsuarios(){
             </tr>`).join('')}
         </tbody>
       </table></div>
+      <div class="muted" style="font-size:11.5px;margin-top:8px;">Clique em "Ativo/Inativo" para liberar ou suspender o acesso de um usuário (ex.: férias, afastamento) sem precisar excluí-lo e cadastrá-lo de novo depois.</div>
     </div>
     <div class="card">
       <h2>Solicitações de nova senha ("Esqueci minha senha")</h2>
@@ -3115,7 +3273,7 @@ async function saveUsuario(){
     if(!senha || senha.length<4){ showToast('Informe uma senha com pelo menos 4 caracteres.'); return; }
     if(USERS_STATE.usuarios.some(u=>u.usuario===usuarioRaw)){ showToast('Já existe um usuário com esse login.'); return; }
     const senhaHash = await hashSenha(senha);
-    USERS_STATE.usuarios.push({ id: uid(), usuario:usuarioRaw, nome, email, perfil, master:(perfil==='master'), senhaHash, bloqueado:false, criadoEm:new Date().toISOString() });
+    USERS_STATE.usuarios.push({ id: uid(), usuario:usuarioRaw, nome, email, perfil, master:(perfil==='master'), senhaHash, bloqueado:false, ativo:true, criadoEm:new Date().toISOString() });
     saveUsersState(true); render(); showToast('Usuário adicionado.','success');
   }
 }
@@ -3136,6 +3294,16 @@ function desbloquearUsuario(id){
   u.bloqueado = false;
   limparTentativasLogin(u.usuario);
   saveUsersState(true); render(); showToast('Usuário desbloqueado.','success');
+}
+function toggleAtivoUsuario(id){
+  if(!isMaster()) return;
+  const u = USERS_STATE.usuarios.find(x=>x.id===id);
+  if(!u) return;
+  const ativoAtual = u.ativo!==false;
+  if(ativoAtual && u.usuario==='joao'){ showToast('O usuário administrador principal (joao) não pode ficar inativo.'); return; }
+  u.ativo = !ativoAtual;
+  saveUsersState(true); render();
+  showToast(u.ativo ? 'Usuário marcado como ativo.' : 'Usuário marcado como inativo — não conseguirá mais entrar no sistema até ser reativado.', 'success');
 }
 function removerSolicitacaoSenha(id){
   if(!Array.isArray(USERS_STATE.solicitacoesSenha)) return;
@@ -3427,6 +3595,10 @@ async function bootAfterAccessCode(){
   document.getElementById('loadingScreen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   goto('dashboard');
+  if(boasVindasPendente){
+    boasVindasPendente = false;
+    setTimeout(mostrarBoasVindas, 300);
+  }
 }
 async function iniciarComLogin(){
   await loadUsersState();
