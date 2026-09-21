@@ -998,7 +998,8 @@ function atualizarVersaoLogin(){
 let STATE = {
   entidade: { nome:'', cnpj:'', nomeFantasia:'', endereco:'', numero:'', cep:'', telefone:'',
               brasao:'', brasaoPos:'esquerda', logo:'', logoPos:'direita' },
-  fornecedores: [],   // {id, nome, contato, telefone, email, cnpj, categoria, ativo}
+  fornecedores: [],   // {id, nome, contato, telefone, email, cnpj, categorias:[], ativo}
+  categoriasFornecedores: [], // ['Medicamentos','Material Hospitalar','Equipamentos Hospitalares',...] — categorias/ramos que um fornecedor pode ter (um fornecedor pode ter várias)
   produtos: [],       // {id, descricao, unidade, categoria} — catálogo reutilizável
   categoriasProdutos: [], // ['Medicamentos','Material Hospitalar','Gêneros Alimentícios',...] — tipos de categoria do catálogo
   destinos: [],       // {id, nome} — setor/destino da cotação (ex.: Farmácia Social/Judicial)
@@ -1011,9 +1012,12 @@ let editingFornecedorId = null;
 let editingProdutoId = null;
 let editingDestinoId = null;
 let cotacaoAbertaId = null;   // cotação sendo editada em "novaCotacao"/"cotacaoAberta"
+let editingItemCotacaoId = null; // item do mapa comparativo sendo editado (alterar descrição/unidade/quantidade)
 let filtroCotacoes = { termo:'', status:'' };
 let filtroProdutos = { termo:'', categoria:'', unidade:'' };
 let novaCategoriaProdutoNome = '';
+let novaCategoriaFornecedorNome = '';
+let forSelecionadasCategorias = []; // categorias/ramos marcadas no formulário de fornecedor (novo ou em edição)
 
 async function loadState(){
   if(!firebaseOk) { garantirModulosNovos(); return; }
@@ -1055,6 +1059,20 @@ function garantirModulosNovos(){
   if(STATE.entidade.brasaoPos!=='esquerda' && STATE.entidade.brasaoPos!=='direita') STATE.entidade.brasaoPos = 'esquerda';
   if(STATE.entidade.logoPos!=='esquerda' && STATE.entidade.logoPos!=='direita') STATE.entidade.logoPos = 'direita';
   if(!Array.isArray(STATE.fornecedores)) STATE.fornecedores = [];
+  if(!Array.isArray(STATE.categoriasFornecedores)) STATE.categoriasFornecedores = [];
+  // Migração suave: fornecedores antigos tinham um campo único "categoria" (texto livre,
+  // às vezes com várias categorias separadas por vírgula). Convertemos para o novo campo
+  // "categorias" (array), sem apagar nada, e cadastramos essas categorias automaticamente.
+  STATE.fornecedores.forEach(f=>{
+    if(!Array.isArray(f.categorias)){
+      const antigas = String(f.categoria||'').split(/[,;/]+/).map(s=>s.trim()).filter(Boolean);
+      f.categorias = antigas;
+    }
+    f.categorias.forEach(c=>{
+      if(c && !STATE.categoriasFornecedores.some(x=>normTxt(x)===normTxt(c))) STATE.categoriasFornecedores.push(c);
+    });
+  });
+  STATE.categoriasFornecedores = STATE.categoriasFornecedores.filter(c=>c && c.trim()).sort((a,b)=>normTxt(a).localeCompare(normTxt(b)));
   if(!Array.isArray(STATE.produtos)) STATE.produtos = [];
   if(!Array.isArray(STATE.categoriasProdutos)) STATE.categoriasProdutos = [];
   STATE.produtos.forEach(p=>{
@@ -1339,6 +1357,7 @@ function reportHeaderHTML({numero, solicitante, destino, data, status, rotulo}){
 function viewFornecedores(){
   const editing = editingFornecedorId ? STATE.fornecedores.find(f=>f.id===editingFornecedorId) : null;
   const lista = STATE.fornecedores.slice().sort((a,b)=> normTxt(a.nome).localeCompare(normTxt(b.nome)));
+  const categoriasFornecedor = STATE.categoriasFornecedores.slice().sort((a,b)=>normTxt(a).localeCompare(normTxt(b)));
   return `
     <div class="card edit-only">
       <h2>${editing ? '✏️ Editar fornecedor' : '+ Novo fornecedor'}</h2>
@@ -1348,7 +1367,19 @@ function viewFornecedores(){
         <div class="field"><label>Telefone</label><input id="forTelefone" value="${editing?esc(editing.telefone):''}" placeholder="(00) 00000-0000"></div>
         <div class="field"><label>E-mail</label><input id="forEmail" type="email" value="${editing?esc(editing.email||''):''}" placeholder="contato@fornecedor.com"></div>
         <div class="field"><label>CNPJ/CPF</label><input id="forCnpj" value="${editing?esc(editing.cnpj||''):''}" placeholder="00.000.000/0000-00"></div>
-        <div class="field"><label>Categoria/Ramo</label><input id="forCategoria" value="${editing?esc(editing.categoria||''):''}" placeholder="Ex: Medicamentos, Material hospitalar..."></div>
+      </div>
+      <div class="field" style="margin-top:4px;">
+        <label>Categoria/Ramo <span class="muted" style="font-weight:400;">(selecione quantas forem necessárias)</span></label>
+        ${categoriasFornecedor.length===0 ? `
+          <div class="helpbox" style="margin-top:6px;">💡 Nenhuma categoria/ramo cadastrada ainda. Cadastre em <b>Cadastros → Categorias de Fornecedores</b> para poder selecioná-las aqui.</div>
+        ` : `
+          <div class="forn-chip-list">
+            ${categoriasFornecedor.map(c=>`
+              <span class="forn-chip ${forSelecionadasCategorias.includes(c)?'selecionado':''}" onclick="toggleCategoriaFornecedorSelecionada('${esc(c).replace(/'/g,"\\'")}')">
+                ${forSelecionadasCategorias.includes(c)?'✔':'+'} ${esc(c)}
+              </span>`).join('')}
+          </div>
+        `}
       </div>
       <div style="margin-top:14px;display:flex;gap:8px;">
         ${editing
@@ -1364,7 +1395,7 @@ function viewFornecedores(){
       <div id="fornecedoresPrint">
         ${reportBrandRowHTML()}
         <div class="table-wrap"><table>
-          <thead><tr><th>Nome</th><th>Contato</th><th>Telefone</th><th>E-mail</th><th>Categoria</th><th>Status</th><th class="no-print"></th></tr></thead>
+          <thead><tr><th>Nome</th><th>Contato</th><th>Telefone</th><th>E-mail</th><th>Categoria/Ramo</th><th>Status</th><th class="no-print"></th></tr></thead>
           <tbody>
             ${lista.length===0 ? `<tr class="empty-row"><td colspan="7">Nenhum fornecedor cadastrado.</td></tr>` :
               lista.map(f=>`
@@ -1373,7 +1404,7 @@ function viewFornecedores(){
                 <td>${esc(f.contato)||'—'}</td>
                 <td>${esc(f.telefone)||'—'}</td>
                 <td>${esc(f.email)||'—'}</td>
-                <td>${esc(f.categoria)||'—'}</td>
+                <td>${(f.categorias&&f.categorias.length) ? esc(f.categorias.join(', ')) : '—'}</td>
                 <td>${f.ativo!==false ? '<span class="badge ativo">Ativo</span>' : '<span class="badge inativo">Inativo</span>'}</td>
                 <td class="no-print">
                   <button class="btn ghost small edit-only" onclick="editFornecedor('${f.id}')">✏️ editar</button>
@@ -1387,6 +1418,12 @@ function viewFornecedores(){
     </div>
   `;
 }
+function toggleCategoriaFornecedorSelecionada(nome){
+  const i = forSelecionadasCategorias.indexOf(nome);
+  if(i>=0) forSelecionadasCategorias.splice(i,1);
+  else forSelecionadasCategorias.push(nome);
+  render();
+}
 function saveFornecedor(){
   if(semPermissao('fornecedores')) return;
   const nome = document.getElementById('forNome').value.trim();
@@ -1397,7 +1434,7 @@ function saveFornecedor(){
     telefone: document.getElementById('forTelefone').value.trim(),
     email: document.getElementById('forEmail').value.trim(),
     cnpj: document.getElementById('forCnpj').value.trim(),
-    categoria: document.getElementById('forCategoria').value.trim(),
+    categorias: forSelecionadasCategorias.slice(),
   };
   if(editingFornecedorId){
     const f = STATE.fornecedores.find(x=>x.id===editingFornecedorId);
@@ -1408,10 +1445,16 @@ function saveFornecedor(){
     STATE.fornecedores.push({ id: uid(), ativo:true, ...dados });
     showToast('Fornecedor adicionado.','success');
   }
+  forSelecionadasCategorias = [];
   saveState(true); render();
 }
-function editFornecedor(id){ editingFornecedorId = id; render(); }
-function cancelEditFornecedor(){ editingFornecedorId = null; render(); }
+function editFornecedor(id){
+  editingFornecedorId = id;
+  const f = STATE.fornecedores.find(x=>x.id===id);
+  forSelecionadasCategorias = (f && Array.isArray(f.categorias)) ? f.categorias.slice() : [];
+  render();
+}
+function cancelEditFornecedor(){ editingFornecedorId = null; forSelecionadasCategorias = []; render(); }
 function toggleAtivoFornecedor(id){
   if(semPermissao('fornecedores')) return;
   const f = STATE.fornecedores.find(x=>x.id===id);
@@ -1427,6 +1470,90 @@ function deleteFornecedor(id){
   STATE.fornecedores = STATE.fornecedores.filter(x=>x.id!==id);
   if(editingFornecedorId===id) editingFornecedorId = null;
   saveState(true); render();
+}
+
+/* ============================================================
+   CATEGORIAS/RAMO DE FORNECEDORES
+   Um fornecedor pode ter quantas categorias/ramos forem necessárias
+   (ex.: Medicamentos + Material Hospitalar + Equipamentos Hospitalares).
+   ============================================================ */
+function viewCategoriasFornecedores(){
+  const categorias = STATE.categoriasFornecedores.slice().sort((a,b)=>normTxt(a).localeCompare(normTxt(b)));
+  return `
+    <div class="card edit-only">
+      <h2>🏷️ Categorias/Ramo de fornecedores</h2>
+      <div class="subtitle">Cadastre aqui os tipos de categoria/ramo que fizerem sentido para a sua entidade (ex.: Medicamentos, Material Hospitalar, Equipamentos Hospitalares, Gêneros Alimentícios...). Depois, no cadastro de cada fornecedor, você poderá marcar quantas categorias forem necessárias — um mesmo fornecedor pode atuar em várias.</div>
+      <div class="flexrow" style="gap:8px;">
+        <input id="novaCategoriaFornecedor" value="${esc(novaCategoriaFornecedorNome)}" oninput="novaCategoriaFornecedorNome=this.value" placeholder="Ex: Equipamentos Hospitalares" style="flex:1;min-width:180px;" onkeydown="if(event.key==='Enter'){event.preventDefault();addCategoriaFornecedor();}">
+        <button class="btn secondary small" onclick="addCategoriaFornecedor()">+ Adicionar categoria</button>
+      </div>
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
+        ${categorias.length===0 ? `<div class="muted" style="font-size:12.5px;">Nenhuma categoria/ramo cadastrada ainda.</div>` :
+          categorias.map(c=>`
+            <span class="badge naoinformado" style="display:inline-flex;align-items:center;gap:6px;padding:6px 8px;">
+              ${esc(c)}
+              <a href="#" onclick="renomearCategoriaFornecedor('${esc(c).replace(/'/g,"\\'")}');return false;" title="Renomear categoria" style="text-decoration:none;">✏️</a>
+              <a href="#" onclick="excluirCategoriaFornecedor('${esc(c).replace(/'/g,"\\'")}');return false;" title="Excluir categoria" style="text-decoration:none;">🗑</a>
+            </span>`).join('')}
+      </div>
+    </div>
+    ${categorias.length>0?`
+    <div class="card">
+      <h2 style="margin:0;">Fornecedores por categoria</h2>
+      <div class="table-wrap" style="margin-top:10px;"><table>
+        <thead><tr><th>Categoria/Ramo</th><th>Fornecedores</th></tr></thead>
+        <tbody>
+          ${categorias.map(c=>{
+            const nomes = STATE.fornecedores.filter(f=>Array.isArray(f.categorias)&&f.categorias.includes(c)).map(f=>f.nome);
+            return `<tr><td><b>${esc(c)}</b></td><td>${nomes.length?esc(nomes.join(', ')):'<span class="muted">nenhum fornecedor nesta categoria</span>'}</td></tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
+    </div>` : ''}
+  `;
+}
+function addCategoriaFornecedor(){
+  if(semPermissao('fornecedores')) return;
+  const nome = (novaCategoriaFornecedorNome||'').trim();
+  if(!nome){ showToast('Digite o nome da categoria.'); return; }
+  if(STATE.categoriasFornecedores.some(c=>normTxt(c)===normTxt(nome))){ showToast('Já existe uma categoria com esse nome.'); return; }
+  STATE.categoriasFornecedores.push(nome);
+  STATE.categoriasFornecedores.sort((a,b)=>normTxt(a).localeCompare(normTxt(b)));
+  novaCategoriaFornecedorNome = '';
+  saveState(true); render();
+  showToast('Categoria adicionada.','success');
+}
+function renomearCategoriaFornecedor(nomeAtual){
+  if(semPermissao('fornecedores')) return;
+  const novoNome = prompt('Novo nome para a categoria:', nomeAtual);
+  if(novoNome===null) return;
+  const nome = novoNome.trim();
+  if(!nome){ showToast('O nome não pode ficar em branco.'); return; }
+  if(STATE.categoriasFornecedores.some(c=>normTxt(c)===normTxt(nome) && normTxt(c)!==normTxt(nomeAtual))){ showToast('Já existe uma categoria com esse nome.'); return; }
+  const idx = STATE.categoriasFornecedores.findIndex(c=>c===nomeAtual);
+  if(idx>=0) STATE.categoriasFornecedores[idx] = nome;
+  STATE.fornecedores.forEach(f=>{
+    if(Array.isArray(f.categorias)){
+      const i = f.categorias.indexOf(nomeAtual);
+      if(i>=0) f.categorias[i] = nome;
+    }
+  });
+  STATE.categoriasFornecedores.sort((a,b)=>normTxt(a).localeCompare(normTxt(b)));
+  saveState(true); render();
+  showToast('Categoria renomeada.','success');
+}
+function excluirCategoriaFornecedor(nome){
+  if(semPermissao('fornecedores')) return;
+  const qtd = STATE.fornecedores.filter(f=>Array.isArray(f.categorias)&&f.categorias.includes(nome)).length;
+  const aviso = qtd>0 ? `Esta categoria está sendo usada em ${qtd} fornecedor(es) — ela será removida deles. ` : '';
+  if(!confirm(`${aviso}Deseja excluir a categoria "${nome}"?`)) return;
+  STATE.categoriasFornecedores = STATE.categoriasFornecedores.filter(c=>c!==nome);
+  STATE.fornecedores.forEach(f=>{
+    if(Array.isArray(f.categorias)) f.categorias = f.categorias.filter(c=>c!==nome);
+  });
+  forSelecionadasCategorias = forSelecionadasCategorias.filter(c=>c!==nome);
+  saveState(true); render();
+  showToast('Categoria excluída.','success');
 }
 
 /* ============================================================
@@ -1746,6 +1873,102 @@ function linhasDoWorksheet(ws){
   });
 }
 
+/* Lê o arquivo em formato "bruto" (matriz de linhas x colunas, sem
+   tentar localizar automaticamente o cabeçalho da tabela). Usado para
+   detectar, no bloco de cabeçalho institucional da ficha (linha
+   "Cotação Nº: ... | Fornecedor: ... | Emissão: ..."), a qual
+   fornecedor e a qual cotação aquela planilha pertence. */
+function lerArquivoBruto(file){
+  return new Promise((resolve, reject)=>{
+    const nome = (file.name||'').toLowerCase();
+    if(nome.endsWith('.csv')){
+      Papa.parse(file, {
+        header: false, skipEmptyLines: true,
+        complete: (res)=> resolve(res.data||[]),
+        error: (err)=> reject(new Error('Não foi possível ler o CSV: ' + err.message))
+      });
+    } else {
+      const reader = new FileReader();
+      reader.onerror = ()=> reject(new Error('Não foi possível ler o arquivo.'));
+      reader.onload = (e)=>{
+        try{
+          const wb = XLSX.read(e.target.result, {type:'array'});
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', blankrows:false});
+          resolve(aoa);
+        }catch(err){ reject(new Error('Não foi possível ler esta planilha: ' + err.message)); }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  });
+}
+/* Procura, nas primeiras linhas do arquivo, o trecho "Fornecedor: X" (gerado
+   automaticamente na ficha em branco exportada pelo próprio sistema) e
+   devolve o nome do fornecedor identificado, ou '' se não encontrar. */
+function detectarFornecedorPlanilha(aoa){
+  for(let r=0; r<Math.min(aoa.length,20); r++){
+    const linha = aoa[r]||[];
+    for(const cel of linha){
+      const txt = String(cel||'');
+      if(/FORNECEDOR\s*:/i.test(txt)){
+        for(const parte of txt.split('|')){
+          const m = parte.match(/FORNECEDOR\s*:\s*(.+)/i);
+          if(m && m[1].trim()) return m[1].trim();
+        }
+      }
+    }
+  }
+  return '';
+}
+/* Mesma lógica, para o trecho "Cotação Nº: X". */
+function detectarNumeroCotacaoPlanilha(aoa){
+  for(let r=0; r<Math.min(aoa.length,20); r++){
+    const linha = aoa[r]||[];
+    for(const cel of linha){
+      const txt = String(cel||'');
+      if(/COTA[ÇC][ÃA]O\s*N[ºO°]?\s*:/i.test(txt)){
+        for(const parte of txt.split('|')){
+          const m = parte.match(/COTA[ÇC][ÃA]O\s*N[ºO°]?\s*:\s*(.+)/i);
+          if(m && m[1].trim()) return m[1].trim();
+        }
+      }
+    }
+  }
+  return '';
+}
+/* Compara dois nomes de fornecedor de forma tolerante (sem acento/caixa,
+   e aceitando que um seja "parecido" com o outro — por exemplo, o nome
+   digitado no cadastro pode vir levemente diferente do nome salvo na
+   ficha exportada anteriormente). */
+function nomesFornecedorBatem(nomeA, nomeB){
+  const a = normTxt(nomeA), b = normTxt(nomeB);
+  if(!a || !b) return true; // sem informação suficiente para comparar — não bloqueia
+  return a===b || a.includes(b) || b.includes(a);
+}
+/* Localiza, entre os fornecedores participantes de uma cotação, aquele cujo
+   nome bate com o nome detectado na planilha. */
+function encontrarFornecedorParticipantePorNome(nomeDetectado, fids){
+  if(!nomeDetectado) return null;
+  const candidatos = fids.map(fid=>STATE.fornecedores.find(f=>f.id===fid)).filter(Boolean);
+  let f = candidatos.find(f=>normTxt(f.nome)===normTxt(nomeDetectado));
+  if(f) return f.id;
+  f = candidatos.find(f=>nomesFornecedorBatem(f.nome, nomeDetectado));
+  return f ? f.id : null;
+}
+/* Lê os preços de UMA planilha já identificada e lança no fornecedor "fid";
+   devolve {ok, semMatch} para permitir montar um relatório consolidado. */
+function lancarPrecosDaPlanilha(c, fid, linhas){
+  let ok=0, semMatch=0;
+  linhas.forEach(l=>{
+    const descricao = String(pegarCampoNormalizado(l, ['DESCRICAO','DESCRIÇÃO','DESCRIÇÃO DO PRODUTO','PRODUTO'])||'').trim();
+    if(!descricao) return;
+    const valor = Number(pegarCampoNormalizado(l, ['VALOR UNITARIO','VALOR UNIT.','VALOR UNIT','VLR UNIT.','PREÇO','PRECO','VALOR']))||0;
+    const item = c.itens.find(it=>normTxt(it.descricao)===normTxt(descricao));
+    if(item){ item.precos[fid] = valor; ok++; } else { semMatch++; }
+  });
+  return {ok, semMatch};
+}
+
 /* ============================================================
    COTAÇÕES — módulo central do sistema
    ============================================================ */
@@ -1850,10 +2073,32 @@ function preencherUnidadeDoCatalogo(){
 function removeItemCotacao(itemId){
   const c = getCotacaoAberta(); if(!c) return;
   if(semPermissao('novaCotacao')) return;
-  if(!confirm('Remover este item da cotação?')) return;
+  if(!confirm('Excluir este item da cotação?')) return;
   c.itens = c.itens.filter(i=>i.id!==itemId);
   delete c.vencedores[itemId];
+  if(editingItemCotacaoId===itemId) editingItemCotacaoId = null;
   saveState(true); render();
+}
+function editItemCotacao(itemId){
+  if(semPermissao('novaCotacao')) return;
+  editingItemCotacaoId = itemId;
+  render();
+}
+function cancelarEdicaoItemCotacao(){ editingItemCotacaoId = null; render(); }
+function salvarEdicaoItemCotacao(itemId){
+  const c = getCotacaoAberta(); if(!c) return;
+  if(semPermissao('novaCotacao')) return;
+  const it = c.itens.find(i=>i.id===itemId); if(!it) return;
+  const descricao = (document.getElementById('itEditDescricao_'+itemId).value||'').trim();
+  const unidade = (document.getElementById('itEditUnidade_'+itemId).value||'').trim();
+  const quantidade = Number(document.getElementById('itEditQuantidade_'+itemId).value)||0;
+  if(!descricao){ showToast('Informe a descrição do item.'); return; }
+  if(quantidade<=0){ showToast('Informe uma quantidade maior que zero.'); return; }
+  it.descricao = descricao; it.unidade = unidade; it.quantidade = quantidade;
+  editingItemCotacaoId = null;
+  calcularVencedores(c);
+  saveState(true); render();
+  showToast('Item atualizado.','success');
 }
 function toggleFornecedorParticipante(fid){
   const c = getCotacaoAberta(); if(!c) return;
@@ -1955,29 +2200,78 @@ function importarItensCotacao(event){
    O arquivo deve ter colunas Descrição e Valor Unitário (ID é opcional). A
    descrição é comparada sem acentos/maiúsculas para casar com os itens já
    lançados na cotação; itens sem correspondência são avisados ao final. */
-function importarPrecosFornecedor(event, fid){
+async function importarPrecosFornecedor(event, fid){
   const c = getCotacaoAberta();
   if(!c){ event.target.value=''; return; }
   if(semPermissao('novaCotacao')){ event.target.value=''; return; }
   const file = event.target.files[0];
-  if(!file) return;
-  lerArquivoTabular(file).then(linhas=>{
-    let ok=0, semMatch=0;
-    linhas.forEach(l=>{
-      const descricao = String(pegarCampoNormalizado(l, ['DESCRICAO','DESCRIÇÃO','DESCRIÇÃO DO PRODUTO','PRODUTO'])||'').trim();
-      if(!descricao) return;
-      // Valor em branco, não numérico ou zero é importado como R$ 0,00 (não é descartado).
-      const valor = Number(pegarCampoNormalizado(l, ['VALOR UNITARIO','VALOR UNIT.','VALOR UNIT','VLR UNIT.','PREÇO','PRECO','VALOR']))||0;
-      const item = c.itens.find(it=>normTxt(it.descricao)===normTxt(descricao));
-      if(item){ item.precos[fid] = valor; ok++; } else { semMatch++; }
-    });
+  if(!file){ return; }
+  const nomeAlvo = fornecedorNome(fid);
+  try{
+    // 1) checagem de identidade: a planilha realmente pertence a este fornecedor?
+    const aoa = await lerArquivoBruto(file);
+    const nomeDetectado = detectarFornecedorPlanilha(aoa);
+    if(nomeDetectado && !nomesFornecedorBatem(nomeDetectado, nomeAlvo)){
+      showToast(`⚠️ A planilha importada não pertence a este fornecedor. Ela foi gerada para "${esc(nomeDetectado)}", e você está tentando importá-la para "${esc(nomeAlvo)}". Favor importar a planilha correta.`, 'error');
+      event.target.value = '';
+      return;
+    }
+    // 2) leitura normal dos itens/preços
+    const linhas = await lerArquivoTabular(file);
+    const {ok, semMatch} = lancarPrecosDaPlanilha(c, fid, linhas);
     calcularVencedores(c);
     saveState(true); render();
-    showToast(`${ok} preço(s) importado(s) para ${esc(fornecedorNome(fid))}.` + (semMatch?` ${semMatch} linha(s) não encontraram um item correspondente na cotação.`:''), semMatch?'warning':'success');
-  }).catch(err=>{
+    showToast(`${ok} preço(s) importado(s) para ${esc(nomeAlvo)}.` + (semMatch?` ${semMatch} linha(s) não encontraram um item correspondente na cotação.`:''), semMatch?'warning':'success');
+  }catch(err){
     showToast(err.message || 'Não foi possível ler este arquivo.', 'error');
-  });
+  }
   event.target.value = '';
+}
+/* ---------------- Importação em lote: todas as planilhas de preços de
+   uma cotação, de uma só vez ----------------
+   O usuário seleciona várias planilhas (uma por fornecedor, cada uma
+   gerada pela ficha do próprio sistema ou respondida pelo fornecedor
+   a partir dela). O app identifica sozinho, pelo cabeçalho de cada
+   planilha, a qual fornecedor ela pertence e lança os preços no lugar
+   certo — sem precisar importar fornecedor por fornecedor. Planilhas
+   sem identificação reconhecível, ou de um fornecedor que não é
+   identificado entre os participantes, são avisadas ao final. */
+async function importarTodasPlanilhasCotacao(event){
+  const c = getCotacaoAberta();
+  if(!c){ event.target.value=''; return; }
+  if(semPermissao('novaCotacao')){ event.target.value=''; return; }
+  const files = Array.from(event.target.files||[]);
+  if(!files.length){ return; }
+  const relatorio = [];
+  for(const file of files){
+    try{
+      const aoa = await lerArquivoBruto(file);
+      const nomeDetectado = detectarFornecedorPlanilha(aoa);
+      const numeroDetectado = detectarNumeroCotacaoPlanilha(aoa);
+      if(!nomeDetectado){
+        relatorio.push(`❌ ${file.name}: não foi possível identificar a qual fornecedor esta planilha pertence. Importe-a individualmente pelo botão "⭱ preços" do fornecedor correto.`);
+        continue;
+      }
+      const fid = encontrarFornecedorParticipantePorNome(nomeDetectado, c.fornecedoresParticipantes);
+      if(!fid){
+        relatorio.push(`❌ ${file.name}: identificamos o fornecedor "${nomeDetectado}", mas ele não está entre os fornecedores participantes desta cotação.`);
+        continue;
+      }
+      if(numeroDetectado && normTxt(numeroDetectado)!==normTxt(c.numero)){
+        relatorio.push(`⚠️ ${file.name}: esta planilha foi gerada para a cotação ${numeroDetectado}, e não para a cotação ${c.numero} que está aberta agora. Arquivo ignorado — favor conferir.`);
+        continue;
+      }
+      const linhas = await lerArquivoTabular(file);
+      const {ok, semMatch} = lancarPrecosDaPlanilha(c, fid, linhas);
+      relatorio.push(`✅ ${file.name}: ${ok} preço(s) importado(s) para ${fornecedorNome(fid)}.` + (semMatch?` (${semMatch} linha(s) sem item correspondente)`:''));
+    }catch(err){
+      relatorio.push(`❌ ${file.name}: ${err.message||'não foi possível ler este arquivo.'}`);
+    }
+  }
+  calcularVencedores(c);
+  saveState(true); render();
+  event.target.value = '';
+  alert('Importação em lote concluída:\n\n' + relatorio.join('\n'));
 }
 /* ============================================================
    FICHA DE COTAÇÃO PARA FORNECEDOR — planilha com cabeçalho da
@@ -2277,8 +2571,24 @@ function matrizPrecosHTML(c){
       ${c.itens.map(it=>{
         const nCotado = participantes.filter(fid=>Number(it.precos[fid])>0).length;
         const vencFid = c.vencedores ? c.vencedores[it.id] : null;
+        const emEdicao = podeEd && editingItemCotacaoId===it.id;
+        if(emEdicao){
+          return `<tr>
+          <td class="desc-col" colspan="${3+participantes.length}">
+            <div class="formgrid" style="margin:4px 0;">
+              <div class="field half"><label>Descrição</label><input id="itEditDescricao_${it.id}" value="${esc(it.descricao)}"></div>
+              <div class="field"><label>Unidade</label><input id="itEditUnidade_${it.id}" value="${esc(it.unidade)}"></div>
+              <div class="field"><label>Quantidade</label><input id="itEditQuantidade_${it.id}" type="number" min="0" step="1" value="${esc(it.quantidade)}"></div>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn small" onclick="salvarEdicaoItemCotacao('${it.id}')">💾 Salvar</button>
+              <button class="btn secondary small" onclick="cancelarEdicaoItemCotacao()">Cancelar</button>
+            </div>
+          </td>
+        </tr>`;
+        }
         return `<tr class="${nCotado<2?'linha-baixa-concorrencia':''}">
-          <td class="desc-col">${esc(it.descricao)} ${podeEd?`<button class="btn ghost small" style="padding:2px 6px;" onclick="removeItemCotacao('${it.id}')" title="Remover item">🗑</button>`:''}</td>
+          <td class="desc-col">${podeEd?`<button class="btn ghost small" style="padding:2px 6px;" onclick="editItemCotacao('${it.id}')" title="Alterar item">✏️</button><button class="btn ghost small" style="padding:2px 6px;" onclick="removeItemCotacao('${it.id}')" title="Excluir item">🗑</button> `:''}${esc(it.descricao)}</td>
           <td>${esc(it.unidade)||'—'}</td>
           <td>${fmtNum(it.quantidade)}</td>
           ${participantes.map(fid=>{
@@ -2349,8 +2659,12 @@ function viewCotacaoBuilder(c){
           </span>`).join('')}
       </div>`}
       ${podeEd && c.fornecedoresParticipantes.length>0 ? `
-      <div class="helpbox">📤 Para pedir preço a um fornecedor: clique em "ficha". A planilha em branco (com o cabeçalho da entidade e bordas) é baixada e o app já abre um e-mail pronto para o fornecedor, usando o seu e-mail cadastrado em Administração → Usuários — só falta anexar o arquivo baixado e enviar (navegadores não permitem anexar arquivos automaticamente). Para lançar os preços recebidos: cole os valores na tabela abaixo ou importe a planilha de resposta do fornecedor.</div>
-      <div style="margin-top:8px;"><button class="btn secondary small" onclick="enviarFichasTodosFornecedores()">📧 Gerar e enviar fichas para todos os fornecedores</button></div>
+      <div class="helpbox">📤 Para pedir preço a um fornecedor: clique em "ficha". A planilha em branco (com o cabeçalho da entidade e bordas) é baixada e o app já abre um e-mail pronto para o fornecedor, usando o seu e-mail cadastrado em Administração → Usuários — só falta anexar o arquivo baixado e enviar (navegadores não permitem anexar arquivos automaticamente). Para lançar os preços recebidos: cole os valores na tabela abaixo, importe a planilha de resposta de UM fornecedor de cada vez, ou importe TODAS de uma vez só (veja abaixo). Em qualquer importação, o app confere pelo cabeçalho da planilha se ela realmente pertence ao fornecedor selecionado, e avisa caso não bata.</div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn secondary small" onclick="enviarFichasTodosFornecedores()">📧 Gerar e enviar fichas para todos os fornecedores</button>
+        <button class="btn secondary small" onclick="document.getElementById('impPrecosTodos').click()" title="Selecione de uma vez as planilhas respondidas por todos os fornecedores — o app identifica sozinho de qual fornecedor é cada planilha">⭱ Importar todas as planilhas desta cotação</button>
+        <input type="file" id="impPrecosTodos" accept=".xlsx,.xls,.csv" multiple style="display:none;" onchange="importarTodasPlanilhasCotacao(event)">
+      </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
         ${c.fornecedoresParticipantes.map(fid=>`
           <div class="flexrow" style="gap:6px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;">
@@ -3406,6 +3720,7 @@ const NAV_BASE = [
   {group:'1. Cadastros', items:[
     {id:'entidade', label:'Cadastro da Entidade', icon:'🏢'},
     {id:'fornecedores', label:'Fornecedores', icon:'🚚'},
+    {id:'categoriasFornecedores', label:'Categorias de Fornecedores', icon:'🏷️'},
     {id:'produtos', label:'Catálogo de Produtos', icon:'📦'},
     {id:'destinos', label:'Destinos/Setores', icon:'🏷️'},
   ]},
@@ -3434,6 +3749,7 @@ const PAGE_META = {
   dashboard:['Dashboard','Visão geral atualizada automaticamente com base nas cotações cadastradas.'],
   entidade:['Cadastro da Entidade','Dados da entidade responsável pelo sistema. O nome fantasia aparece logo abaixo do nome do aplicativo, no menu lateral.'],
   fornecedores:['Cadastro de Fornecedores','Cadastre os fornecedores que participam das cotações de preços.'],
+  categoriasFornecedores:['Categorias de Fornecedores','Cadastre as categorias/ramo de atuação dos fornecedores. Um fornecedor pode pertencer a quantas categorias forem necessárias.'],
   produtos:['Catálogo de Produtos','Produtos reaproveitáveis para agilizar a montagem de uma nova cotação.'],
   destinos:['Destinos/Setores','Setores ou destinos das cotações, como Farmácia Social/Judicial, Secretaria de Saúde etc.'],
   novaCotacao:['Nova Cotação','Monte a cotação: itens, fornecedores participantes e o mapa comparativo de preços.'],
@@ -3553,6 +3869,7 @@ function render(){
   if(currentView==='dashboard') v.innerHTML = viewDashboard();
   else if(currentView==='entidade') v.innerHTML = viewEntidade();
   else if(currentView==='fornecedores') v.innerHTML = viewFornecedores();
+  else if(currentView==='categoriasFornecedores') v.innerHTML = viewCategoriasFornecedores();
   else if(currentView==='produtos') v.innerHTML = viewProdutos();
   else if(currentView==='destinos') v.innerHTML = viewDestinos();
   else if(currentView==='novaCotacao') v.innerHTML = viewNovaCotacao();
@@ -3564,7 +3881,7 @@ function render(){
   else if(currentView==='relDestino') v.innerHTML = viewRelDestino();
   else if(currentView==='usuarios') v.innerHTML = viewUsuarios();
   else if(currentView==='logAcesso') v.innerHTML = viewLogAcesso();
-  const VIEWS_COM_FORM = ['entidade','fornecedores','produtos','destinos','novaCotacao'];
+  const VIEWS_COM_FORM = ['entidade','fornecedores','categoriasFornecedores','produtos','destinos','novaCotacao'];
   if(!podeEditar(currentView) && VIEWS_COM_FORM.includes(currentView)){
     document.querySelectorAll('.edit-only').forEach(n=> n.style.display='none');
   }
