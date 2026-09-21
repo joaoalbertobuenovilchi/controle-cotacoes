@@ -1012,6 +1012,8 @@ let editingFornecedorId = null;
 let editingProdutoId = null;
 let editingDestinoId = null;
 let cotacaoAbertaId = null;   // cotação sendo editada em "novaCotacao"/"cotacaoAberta"
+let abaNovaCotacao = 'cotacao'; // aba ativa dentro do builder de cotação: 'cotacao' | 'itensFornecedores' | 'mapaAcoes'
+function setAbaNovaCotacao(aba){ abaNovaCotacao = aba; render(); }
 let editingItemCotacaoId = null; // item do mapa comparativo sendo editado (alterar descrição/unidade/quantidade)
 let filtroCotacoes = { termo:'', status:'' };
 let filtroProdutos = { termo:'', categoria:'', unidade:'' };
@@ -1981,7 +1983,7 @@ function novoNumeroCotacaoPreview(){
 }
 function getCotacaoAberta(){ return STATE.cotacoes.find(c=>c.id===cotacaoAbertaId) || null; }
 function getCotacao(id){ return STATE.cotacoes.find(c=>c.id===id) || null; }
-function abrirCotacao(id){ cotacaoAbertaId = id; goto('novaCotacao'); }
+function abrirCotacao(id){ cotacaoAbertaId = id; abaNovaCotacao = 'cotacao'; goto('novaCotacao'); }
 
 function criarCotacao(){
   if(semPermissao('novaCotacao')) return;
@@ -1997,6 +1999,7 @@ function criarCotacao(){
   STATE.cotacoes.push(c);
   STATE.proximoNumero = (STATE.proximoNumero||1) + 1;
   cotacaoAbertaId = c.id;
+  abaNovaCotacao = 'cotacao';
   saveState(true); render();
   showToast('Cotação '+numero+' iniciada. Agora adicione os itens e os fornecedores participantes.','success');
 }
@@ -2178,6 +2181,7 @@ function duplicarCotacao(id){
   STATE.cotacoes.push(nova);
   STATE.proximoNumero = (STATE.proximoNumero||1) + 1;
   cotacaoAbertaId = nova.id;
+  abaNovaCotacao = 'cotacao';
   saveState(true);
   goto('novaCotacao');
   showToast('Cotação '+numero+' criada a partir da '+orig.numero+' (itens copiados, preços em branco).','success');
@@ -2978,16 +2982,9 @@ function matrizPrecosHTML(c){
     </tbody>
   </table></div>`;
 }
-function viewCotacaoBuilder(c){
-  const podeEd = podeEditar('novaCotacao') && c.status!=='FECHADA';
-  const resumo = resumoCotacaoCalc(c);
-  const participantesAtivos = fornecedoresAtivos();
+function abaCotacaoDados(c, podeEd){
   return `
     <div class="card">
-      <div class="flexrow" style="margin-bottom:4px;">
-        <h2 style="margin:0;">Cotação ${esc(c.numero)}</h2>
-        <span class="status-pill ${c.status==='FECHADA'?'st-deferido':'st-analise'}">${c.status==='FECHADA'?'Fechada':'Em andamento'}</span>
-      </div>
       <div class="formgrid">
         <div class="field"><label>Nº da cotação</label><input value="${esc(c.numero)}" disabled></div>
         <div class="field"><label>Data de abertura</label><input value="${fmtDateBR(c.dataAbertura)}" disabled></div>
@@ -3002,7 +2999,10 @@ function viewCotacaoBuilder(c){
       </div>
       ${podeEd?`<div style="margin-top:10px;"><button class="btn secondary small" onclick="salvarCabecalhoCotacao()">💾 Salvar dados da cotação</button></div>`:''}
     </div>
-
+  `;
+}
+function abaCotacaoItensFornecedores(c, podeEd, participantesAtivos){
+  return `
     ${podeEd?`
     <div class="card">
       <h2>📦 Itens da cotação</h2>
@@ -3019,10 +3019,15 @@ function viewCotacaoBuilder(c){
         <button class="btn secondary" onclick="document.getElementById('importItensFile').click()">⭱ Importar itens de planilha</button>
         <input type="file" id="importItensFile" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importarItensCotacao(event)">
       </div>
-    </div>` : ''}
+      <div class="subtitle" style="margin-top:10px;">${c.itens.length} item(ns) cadastrado(s) nesta cotação. A lista completa dos itens aparece no mapa comparativo, na aba "Mapa e Ações".</div>
+    </div>` : `
+    <div class="card">
+      <h2>📦 Itens da cotação</h2>
+      <div class="subtitle">${c.itens.length} item(ns) cadastrado(s) nesta cotação. A lista completa dos itens aparece no mapa comparativo, na aba "Mapa e Ações".</div>
+    </div>`}
 
     <div class="card">
-      <h2>🚚 Fornecedores participantes${podeEd?'':''}</h2>
+      <h2>🚚 Fornecedores participantes</h2>
       ${participantesAtivos.length===0?`<div class="helpbox">Nenhum fornecedor ativo cadastrado. Cadastre em <b>Cadastros → Fornecedores</b>.</div>`:`
       <div class="forn-chip-list">
         ${participantesAtivos.map(f=>`
@@ -3047,7 +3052,10 @@ function viewCotacaoBuilder(c){
           </div>`).join('')}
       </div>` : ''}
     </div>
-
+  `;
+}
+function abaCotacaoMapaAcoes(c, podeEd, resumo){
+  return `
     <div class="card">
       <div class="flexrow" style="margin-bottom:8px;">
         <h2 style="margin:0;">💰 Mapa comparativo de preços</h2>
@@ -3079,6 +3087,33 @@ function viewCotacaoBuilder(c){
         ${podeEd?`<button class="btn secondary" onclick="excluirCotacao('${c.id}')" style="color:var(--red);">🗑 Excluir cotação</button>`:''}
       </div>
     </div>
+  `;
+}
+function viewCotacaoBuilder(c){
+  const podeEd = podeEditar('novaCotacao') && c.status!=='FECHADA';
+  const resumo = resumoCotacaoCalc(c);
+  const participantesAtivos = fornecedoresAtivos();
+  if(!['cotacao','itensFornecedores','mapaAcoes'].includes(abaNovaCotacao)) abaNovaCotacao = 'cotacao';
+  const ABAS = [
+    {id:'cotacao', label:'📝 Cotação'},
+    {id:'itensFornecedores', label:'📦 Itens e Fornecedores'},
+    {id:'mapaAcoes', label:'💰 Mapa e Ações'},
+  ];
+  let conteudo = '';
+  if(abaNovaCotacao==='cotacao') conteudo = abaCotacaoDados(c, podeEd);
+  else if(abaNovaCotacao==='itensFornecedores') conteudo = abaCotacaoItensFornecedores(c, podeEd, participantesAtivos);
+  else conteudo = abaCotacaoMapaAcoes(c, podeEd, resumo);
+  return `
+    <div class="card" style="margin-bottom:0;">
+      <div class="flexrow" style="margin-bottom:4px;">
+        <h2 style="margin:0;">Cotação ${esc(c.numero)}</h2>
+        <span class="status-pill ${c.status==='FECHADA'?'st-deferido':'st-analise'}">${c.status==='FECHADA'?'Fechada':'Em andamento'}</span>
+      </div>
+      <div class="tabs" style="margin-top:10px;margin-bottom:0;">
+        ${ABAS.map(a=>`<div class="tab ${abaNovaCotacao===a.id?'active':''}" onclick="setAbaNovaCotacao('${a.id}')">${a.label}</div>`).join('')}
+      </div>
+    </div>
+    ${conteudo}
   `;
 }
 function viewNovaCotacao(){
