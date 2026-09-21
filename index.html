@@ -3001,6 +3001,45 @@ function abaCotacaoDados(c, podeEd){
     </div>
   `;
 }
+function itensCotacaoListaHTML(c, podeEd){
+  if(c.itens.length===0) return `<div class="helpbox">Nenhum item adicionado ainda.</div>`;
+  const ncols = podeEd ? 4 : 3;
+  return `
+  <div class="table-wrap"><table>
+    <thead><tr>
+      <th style="text-align:left;">Descrição</th><th>Unidade</th><th>Quantidade</th>${podeEd?'<th>Ações</th>':''}
+    </tr></thead>
+    <tbody>
+      ${c.itens.map(it=>{
+        const emEdicao = podeEd && editingItemCotacaoId===it.id;
+        if(emEdicao){
+          return `<tr>
+          <td colspan="${ncols}">
+            <div class="formgrid" style="margin:4px 0;">
+              <div class="field half"><label>Descrição</label><input id="itEditDescricao_${it.id}" value="${esc(it.descricao)}"></div>
+              <div class="field"><label>Unidade</label><input id="itEditUnidade_${it.id}" value="${esc(it.unidade)}"></div>
+              <div class="field"><label>Quantidade</label><input id="itEditQuantidade_${it.id}" type="number" min="0" step="1" value="${esc(it.quantidade)}"></div>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn small" onclick="salvarEdicaoItemCotacao('${it.id}')">💾 Salvar</button>
+              <button class="btn secondary small" onclick="cancelarEdicaoItemCotacao()">Cancelar</button>
+            </div>
+          </td>
+        </tr>`;
+        }
+        return `<tr>
+          <td>${esc(it.descricao)}</td>
+          <td style="text-align:center;">${esc(it.unidade)||'—'}</td>
+          <td style="text-align:center;">${fmtNum(it.quantidade)}</td>
+          ${podeEd?`<td style="text-align:center;white-space:nowrap;">
+            <button class="btn ghost small" style="padding:2px 6px;" onclick="editItemCotacao('${it.id}')" title="Alterar item">✏️</button>
+            <button class="btn ghost small" style="padding:2px 6px;" onclick="removeItemCotacao('${it.id}')" title="Excluir item">🗑</button>
+          </td>`:''}
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table></div>`;
+}
 function abaCotacaoItensFornecedores(c, podeEd, participantesAtivos){
   return `
     ${podeEd?`
@@ -3019,11 +3058,13 @@ function abaCotacaoItensFornecedores(c, podeEd, participantesAtivos){
         <button class="btn secondary" onclick="document.getElementById('importItensFile').click()">⭱ Importar itens de planilha</button>
         <input type="file" id="importItensFile" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importarItensCotacao(event)">
       </div>
-      <div class="subtitle" style="margin-top:10px;">${c.itens.length} item(ns) cadastrado(s) nesta cotação. A lista completa dos itens aparece no mapa comparativo, na aba "Mapa e Ações".</div>
+      <div class="subtitle" style="margin-top:14px;">Itens já cadastrados nesta cotação (${c.itens.length}) — confira aqui antes de adicionar, para evitar duplicidade:</div>
+      <div style="margin-top:8px;">${itensCotacaoListaHTML(c, podeEd)}</div>
     </div>` : `
     <div class="card">
       <h2>📦 Itens da cotação</h2>
-      <div class="subtitle">${c.itens.length} item(ns) cadastrado(s) nesta cotação. A lista completa dos itens aparece no mapa comparativo, na aba "Mapa e Ações".</div>
+      <div class="subtitle">Itens cadastrados nesta cotação (${c.itens.length}):</div>
+      <div style="margin-top:8px;">${itensCotacaoListaHTML(c, podeEd)}</div>
     </div>`}
 
     <div class="card">
