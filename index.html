@@ -446,6 +446,56 @@ table.matriz tr.linha-baixa-concorrencia td.desc-col::after{content:' ⚠️';}
 .rank-pos{width:22px;height:22px;border-radius:50%;background:var(--teal-soft);color:var(--teal-dark);font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
 .rank-nome{flex:1;font-weight:600;font-size:13px;}
 .rank-valor{font-weight:800;font-size:13px;color:var(--teal-dark);}
+
+/* ============================================================
+   MÓDULO 3 — CONFERÊNCIA DE PEDIDOS (RECEBIMENTO / ESTOQUE-FARMÁCIA)
+   Só estilo: nenhuma dessas regras altera dado nenhum já cadastrado.
+   ============================================================ */
+.alerta-atraso{
+  background:var(--red-soft);border:1px solid #F0C3BF;border-left:4px solid var(--red);
+  color:#8A2B23;padding:12px 16px;border-radius:9px;font-size:12.5px;line-height:1.55;margin-bottom:14px;
+  animation:alertaPulso .5s ease;
+}
+.alerta-atraso b{color:var(--red);}
+.alerta-atraso ul{margin:8px 0 0;padding-left:20px;}
+.alerta-atraso li{margin-bottom:3px;}
+@keyframes alertaPulso{from{opacity:0;transform:translateY(-5px);}to{opacity:1;transform:translateY(0);}}
+.alerta-ok{background:var(--green-soft);border:1px solid #BFE0CA;border-left:4px solid var(--green);color:#215E39;padding:11px 16px;border-radius:9px;font-size:12.5px;margin-bottom:14px;}
+.alerta-aviso{background:var(--amber-soft);border:1px solid #E8C88D;border-left:4px solid var(--amber);color:#8A5A1C;padding:11px 16px;border-radius:9px;font-size:12.5px;margin-bottom:14px;line-height:1.55;}
+
+.status-pill.st-aguardando{background:#EEF2F5;color:#5A6B72;}
+.status-pill.st-semprazo{background:#F3EFE3;color:#7A6A3C;}
+.status-pill.st-noprazo{background:#E1EEFB;color:#28588F;}
+.status-pill.st-hoje{background:#FFF3D6;color:#8A6A16;}
+.status-pill.st-atrasado{background:#FDE7E7;color:#B02A2A;}
+.status-pill.st-completo{background:#E4F6E9;color:#1B7A3E;}
+
+.ped-list-item{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:var(--radius);padding:12px 16px;margin-bottom:10px;background:#fff;box-shadow:var(--shadow);transition:var(--transition);cursor:pointer;}
+.ped-list-item:hover{box-shadow:var(--shadow-hover);transform:translateY(-1px);}
+.ped-list-item.b-atrasado{border-left-color:var(--red);}
+.ped-list-item.b-hoje{border-left-color:var(--amber);}
+.ped-list-item.b-noprazo{border-left-color:var(--blue);}
+.ped-list-item.b-completo{border-left-color:var(--green);}
+.ped-list-item.b-aguardando{border-left-color:var(--ink-soft);}
+.ped-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.ped-num{font-weight:800;color:var(--teal-dark);font-size:14px;}
+.ped-meta{font-size:11.5px;color:var(--ink-soft);margin-top:3px;line-height:1.5;}
+.ped-prog{margin-top:9px;background:var(--bg);border-radius:4px;height:6px;overflow:hidden;}
+.ped-prog-fill{height:100%;border-radius:4px;background:var(--green);transition:width .45s;}
+.ped-prog-fill.parcial{background:var(--amber);}
+.ped-prog-fill.zero{background:var(--red);}
+
+.rec-input{width:96px;padding:5px 6px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;text-align:right;font-family:inherit;}
+.rec-input:focus{outline:2px solid var(--teal);outline-offset:1px;}
+td.qtd-pendente{color:var(--red);font-weight:700;}
+td.qtd-ok{color:var(--green);font-weight:700;}
+tr.linha-completa{background:#F7FCF9;}
+.navitem .navbadge{margin-left:auto;background:var(--red);color:#fff;font-size:9.5px;font-weight:800;border-radius:999px;padding:1px 6px;min-width:17px;text-align:center;line-height:1.5;}
+.conf-kv{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 16px;margin-top:4px;}
+@media(max-width:900px){.conf-kv{grid-template-columns:repeat(2,1fr);}}
+.conf-kv .k{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);font-weight:700;margin-bottom:2px;}
+.conf-kv .v{font-size:13.5px;font-weight:800;color:var(--ink);}
+@media print{ .rec-input{display:none !important;} }
 </style>
 </head>
 <body>
@@ -674,7 +724,7 @@ let usersLoaded = false;
               fechar. Os cadastros (Entidade, Fornecedores, Produtos,
               Destinos) continuam só do administrador.
    ============================================================ */
-const COTADOR_VIEWS_PERMITIDAS = ['novaCotacao','cotacaoAberta','cotacoesAndamento'];
+const COTADOR_VIEWS_PERMITIDAS = ['novaCotacao','cotacaoAberta','cotacoesAndamento','conferenciaPedidos'];
 function perfilAtual(){ return currentUser ? (currentUser.perfil || (currentUser.master ? 'master':'comum')) : null; }
 function isMaster(){ return perfilAtual()==='master'; }
 function isCotador(){ return perfilAtual()==='cotador'; }
@@ -978,8 +1028,8 @@ function trocarCodigoAcesso(){
    "<mês desde a criação>.<alterações no mês>.<ano>".
    ============================================================ */
 const APP_CRIACAO = { mes: 9, ano: 2026 };
-const APP_ALTERACAO = 4;
-const APP_DATA = '2026-09-11';
+const APP_ALTERACAO = 5;
+const APP_DATA = '2026-09-23';
 function appVersao(){
   const p = APP_DATA.split('-').map(Number);
   const ano = p[0], mes = p[1];
@@ -1088,6 +1138,11 @@ function garantirModulosNovos(){
   if(!STATE.config || typeof STATE.config!=='object') STATE.config = { prefixoNumero:'', usarAnoNoNumero:true };
   STATE.fornecedores.forEach(f=>{
     if(f.ativo===undefined) f.ativo = true;
+    // Prazo de entrega (em dias) — usado pelo módulo "3. Conferência de Pedidos"
+    // para calcular a data limite de entrega. Fornecedores antigos ficam com 0
+    // (= prazo ainda não informado); nenhum dado cadastrado é alterado.
+    if(f.prazoEntregaDias===undefined || f.prazoEntregaDias===null || isNaN(Number(f.prazoEntregaDias))) f.prazoEntregaDias = 0;
+    f.prazoEntregaDias = Math.max(0, Math.round(Number(f.prazoEntregaDias)||0));
   });
   STATE.cotacoes.forEach(c=>{
     if(!Array.isArray(c.itens)) c.itens = [];
@@ -1095,6 +1150,18 @@ function garantirModulosNovos(){
     if(!c.vencedores || typeof c.vencedores!=='object') c.vencedores = {};
     if(!c.status) c.status = 'ABERTA';
     c.itens.forEach(it=>{ if(!it.precos || typeof it.precos!=='object') it.precos = {}; });
+    // Conferência de Pedidos: controle de recebimento por fornecedor vencedor.
+    // Cotações antigas simplesmente começam com o controle vazio (nada é perdido).
+    if(!c.recebimentos || typeof c.recebimentos!=='object') c.recebimentos = {};
+    Object.keys(c.recebimentos).forEach(fid=>{
+      const r = c.recebimentos[fid];
+      if(!r || typeof r!=='object'){ c.recebimentos[fid] = { dataEnvio:'', prazoDias:0, observacoes:'', entregas:[] }; return; }
+      if(typeof r.dataEnvio!=='string') r.dataEnvio = '';
+      if(isNaN(Number(r.prazoDias))) r.prazoDias = 0;
+      r.prazoDias = Math.max(0, Math.round(Number(r.prazoDias)||0));
+      if(typeof r.observacoes!=='string') r.observacoes = '';
+      if(!Array.isArray(r.entregas)) r.entregas = [];
+    });
   });
 }
 
@@ -1369,6 +1436,14 @@ function viewFornecedores(){
         <div class="field"><label>Telefone</label><input id="forTelefone" value="${editing?esc(editing.telefone):''}" placeholder="(00) 00000-0000"></div>
         <div class="field"><label>E-mail</label><input id="forEmail" type="email" value="${editing?esc(editing.email||''):''}" placeholder="contato@fornecedor.com"></div>
         <div class="field"><label>CNPJ/CPF</label><input id="forCnpj" value="${editing?esc(editing.cnpj||''):''}" placeholder="00.000.000/0000-00"></div>
+        <div class="field"><label>Prazo de entrega (dias)</label><input id="forPrazo" type="number" min="0" step="1" value="${editing && Number(editing.prazoEntregaDias)>0 ? Number(editing.prazoEntregaDias) : ''}" placeholder="Ex: 15"></div>
+      </div>
+      <div class="helpbox" style="margin-top:10px;margin-bottom:0;">
+        ⏱️ <b>Prazo de entrega (dias):</b> quantos dias corridos o fornecedor tem para entregar os itens
+        que venceu em uma cotação. A contagem começa na <b>data em que o pedido é enviado a ele</b>
+        (registrada automaticamente ao fechar a cotação e gerar as planilhas de itens vencidos, ou
+        informada manualmente no módulo <b>3. Conferência de Pedidos</b>). Deixe em branco ou zero se
+        ainda não houver prazo acordado.
       </div>
       <div class="field" style="margin-top:4px;">
         <label>Categoria/Ramo <span class="muted" style="font-weight:400;">(selecione quantas forem necessárias)</span></label>
@@ -1397,9 +1472,9 @@ function viewFornecedores(){
       <div id="fornecedoresPrint">
         ${reportBrandRowHTML()}
         <div class="table-wrap"><table>
-          <thead><tr><th>Nome</th><th>Contato</th><th>Telefone</th><th>E-mail</th><th>Categoria/Ramo</th><th>Status</th><th class="no-print"></th></tr></thead>
+          <thead><tr><th>Nome</th><th>Contato</th><th>Telefone</th><th>E-mail</th><th>Categoria/Ramo</th><th>Prazo entrega</th><th>Status</th><th class="no-print"></th></tr></thead>
           <tbody>
-            ${lista.length===0 ? `<tr class="empty-row"><td colspan="7">Nenhum fornecedor cadastrado.</td></tr>` :
+            ${lista.length===0 ? `<tr class="empty-row"><td colspan="8">Nenhum fornecedor cadastrado.</td></tr>` :
               lista.map(f=>`
               <tr>
                 <td><b>${esc(f.nome)}</b></td>
@@ -1407,6 +1482,7 @@ function viewFornecedores(){
                 <td>${esc(f.telefone)||'—'}</td>
                 <td>${esc(f.email)||'—'}</td>
                 <td>${(f.categorias&&f.categorias.length) ? esc(f.categorias.join(', ')) : '—'}</td>
+                <td>${Number(f.prazoEntregaDias)>0 ? (Number(f.prazoEntregaDias)+' dia(s)') : '<span class="muted">não informado</span>'}</td>
                 <td>${f.ativo!==false ? '<span class="badge ativo">Ativo</span>' : '<span class="badge inativo">Inativo</span>'}</td>
                 <td class="no-print">
                   <button class="btn ghost small edit-only" onclick="editFornecedor('${f.id}')">✏️ editar</button>
@@ -1437,6 +1513,7 @@ function saveFornecedor(){
     email: document.getElementById('forEmail').value.trim(),
     cnpj: document.getElementById('forCnpj').value.trim(),
     categorias: forSelecionadasCategorias.slice(),
+    prazoEntregaDias: Math.max(0, Math.round(Number(document.getElementById('forPrazo').value)||0)),
   };
   if(editingFornecedorId){
     const f = STATE.fornecedores.find(x=>x.id===editingFornecedorId);
@@ -2141,6 +2218,13 @@ async function fecharCotacao(){
   calcularVencedores(c);
   c.status = 'FECHADA';
   c.dataFechamento = hojeISO();
+  // Módulo 3 — Conferência de Pedidos: abre o controle de recebimento de cada
+  // fornecedor vencedor. Começa como "Aguardando envio"; a contagem do prazo
+  // só começa quando o pedido for enviado ao fornecedor.
+  try{
+    const mapaVenc = itensVencidosPorFornecedor(c);
+    Object.keys(mapaVenc).forEach(fid=> getRecebimento(c, fid));
+  }catch(e){ console.error(e); }
   cotacaoAbertaId = null;
   saveState(true);
   goto('historicoCotacoes');
@@ -2850,7 +2934,28 @@ async function gerarESalvarPlanilhasVencedores(c){
       salvos.push({fid, nome:nomeForn});
     }
 
+    // ---- Módulo 3 — Conferência de Pedidos ----
+    // As planilhas dos itens vencidos acabaram de ser geradas/enviadas: é daqui
+    // que começa a contar o prazo de entrega de cada fornecedor vencedor.
+    const hojeEnvio = hojeISO();
+    let comPrazo = 0, semPrazo = [];
+    salvos.forEach(({fid, nome})=>{
+      const rec = getRecebimento(c, fid);
+      if(!rec.dataEnvio) rec.dataEnvio = hojeEnvio;
+      const f = STATE.fornecedores.find(x=>x.id===fid);
+      if(!(Number(rec.prazoDias)>0) && f && Number(f.prazoEntregaDias)>0) rec.prazoDias = Number(f.prazoEntregaDias);
+      if(Number(rec.prazoDias)>0) comPrazo++; else semPrazo.push(nome);
+    });
+    saveState(true);
+
     showToast(dirHandle ? 'Planilhas de itens vencidos salvas na pasta escolhida.' : 'Planilhas de itens vencidos baixadas para a pasta padrão de downloads do navegador (este navegador não permite escolher a pasta).', 'success');
+    setTimeout(()=>{
+      if(semPrazo.length){
+        showToast('Pedido(s) registrados em "3. Conferência de Pedidos" com envio em '+fmtDateBR(hojeEnvio)+'. Atenção: '+semPrazo.length+' fornecedor(es) sem prazo de entrega cadastrado ('+semPrazo.slice(0,3).join(', ')+(semPrazo.length>3?'…':'')+'). Informe o prazo em Cadastros → Fornecedores ou direto no pedido.', 'warning');
+      } else if(comPrazo){
+        showToast(comPrazo+' pedido(s) enviados em '+fmtDateBR(hojeEnvio)+'. O prazo de entrega já está sendo contado no módulo "3. Conferência de Pedidos".', 'success');
+      }
+    }, 1600);
 
     if(confirm('Deseja enviar as planilhas de itens vencidos por e-mail para os respectivos fornecedores vencedores agora?')){
       if(!currentUser || !currentUser.email){
@@ -3343,7 +3448,17 @@ function viewDashboard(){
   const campeao = rankingArr.slice().sort((a,b)=>b.vitorias-a.vitorias)[0];
   const produtosTop = agregadosPorProduto().slice(0,6);
   const destinosArr = Object.keys(ag.porDestino).map(d=>({destino:d, ...ag.porDestino[d]})).sort((a,b)=>b.valor-a.valor).slice(0,6);
-  return `
+  // Aviso de entregas atrasadas (módulo 3 — Conferência de Pedidos), mostrado
+  // já na primeira tela para o usuário não perder o prazo de nenhum pedido.
+  const atrasadosDash = pedidosAtrasados();
+  const avisoEntregas = atrasadosDash.length ? `
+    <div class="alerta-atraso" style="cursor:pointer;" onclick="goto('conferenciaPedidos')" title="Clique para abrir a Conferência de Pedidos">
+      <b>⛔ ${atrasadosDash.length} pedido(s) com o prazo de entrega VENCIDO.</b>
+      Faltam receber ${fmtMoney(atrasadosDash.reduce((s,p)=>s+p.valorPendente,0))} em itens de cotações já fechadas —
+      o mais crítico é a cotação <b>${esc(atrasadosDash[0].numero)}</b> (${esc(atrasadosDash[0].fornecedor)}), com <b>${atrasadosDash[0].diasAtraso} dia(s) de atraso</b>.
+      <br><span style="text-decoration:underline;">Clique aqui para abrir o módulo 3. Conferência de Pedidos.</span>
+    </div>` : '';
+  return avisoEntregas + `
     <div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:16px;">
       <div class="stat"><div class="label">Cotações em andamento</div><div class="value">${ag.abertas.length}</div><div class="hint">aguardando fechamento</div></div>
       <div class="stat"><div class="label">Cotações fechadas</div><div class="value">${ag.fechadas.length}</div><div class="hint">histórico completo</div></div>
@@ -4158,9 +4273,785 @@ function importAllData(event){
   reader.readAsText(file);
 }
 
+/* ============================================================
+   MÓDULO 3 — CONFERÊNCIA DE PEDIDOS (RECEBIMENTO / ESTOQUE-FARMÁCIA)
+   ------------------------------------------------------------
+   Para que serve: depois que a cotação é fechada e os pedidos dos itens
+   vencidos são enviados aos fornecedores vencedores, é aqui que se confere
+   se TUDO o que foi pedido realmente chegou.
+
+   Exemplo do dia a dia: na cotação 001/2026 foram pedidas 10 caixas de
+   Dipirona 500mg e o fornecedor entregou só 7 — o sistema mostra 3 caixas
+   pendentes e continua cobrando essa diferença até ela ser entregue.
+
+   Como o prazo é contado:
+     data limite = data de envio do pedido + prazo de entrega (dias)
+   O prazo de entrega em dias vem do cadastro do fornecedor (Cadastros →
+   Fornecedores) e é copiado para o pedido no momento do envio — assim, se o
+   prazo do fornecedor mudar depois, os pedidos antigos continuam com o prazo
+   que valia na época. O prazo do pedido pode ser ajustado manualmente.
+
+   Estrutura salva (dentro de cada cotação, sem alterar nada do que já existe):
+     c.recebimentos[fornecedorId] = {
+       dataEnvio: 'AAAA-MM-DD',      // quando o pedido foi enviado ao fornecedor
+       prazoDias: 15,                // prazo acordado, em dias corridos
+       observacoes: '',
+       entregas: [                   // cada remessa parcial vira um registro
+         { id, itemId, quantidade, data, nota, obs, usuario, registradoEm }
+       ]
+     }
+   Nada é sobrescrito: registrar uma entrega só ACRESCENTA uma linha na lista.
+   ============================================================ */
+let pedidoConfSel = null;   // pedido aberto na tela: 'cotacaoId|fornecedorId'
+let filtroConferencia = { termo:'', status:'' };
+
+const PEDIDO_STATUS = {
+  AGUARDANDO: { label:'Aguardando envio',        pill:'st-aguardando', borda:'b-aguardando', ic:'📭' },
+  SEM_PRAZO:  { label:'Sem prazo definido',      pill:'st-semprazo',   borda:'b-aguardando', ic:'❔' },
+  NO_PRAZO:   { label:'No prazo',                pill:'st-noprazo',    borda:'b-noprazo',    ic:'🕒' },
+  VENCE_HOJE: { label:'Vence hoje',              pill:'st-hoje',       borda:'b-hoje',       ic:'⚠️' },
+  ATRASADO:   { label:'Atrasado',                pill:'st-atrasado',   borda:'b-atrasado',   ic:'⛔' },
+  COMPLETO:   { label:'Entregue por completo',   pill:'st-completo',   borda:'b-completo',   ic:'✅' },
+};
+function statusPedidoInfo(cod){ return PEDIDO_STATUS[cod] || PEDIDO_STATUS.AGUARDANDO; }
+
+/* ---- Utilitários de data (dias corridos) ---- */
+function somarDiasISO(iso, dias){
+  if(!iso) return '';
+  const d = new Date(iso+'T00:00:00');
+  if(isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + (Number(dias)||0));
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function diasEntreISO(de, ate){
+  if(!de || !ate) return 0;
+  const a = new Date(de+'T00:00:00'), b = new Date(ate+'T00:00:00');
+  if(isNaN(a.getTime())||isNaN(b.getTime())) return 0;
+  return Math.round((b-a)/86400000);
+}
+
+/* ---- Acesso ao controle de recebimento de um fornecedor em uma cotação ---- */
+function recebimentosDaCotacao(c){
+  if(!c.recebimentos || typeof c.recebimentos!=='object') c.recebimentos = {};
+  return c.recebimentos;
+}
+function getRecebimento(c, fid){
+  const R = recebimentosDaCotacao(c);
+  if(!R[fid]){
+    const f = STATE.fornecedores.find(x=>x.id===fid);
+    R[fid] = {
+      dataEnvio:'',
+      prazoDias: (f && Number(f.prazoEntregaDias)>0) ? Number(f.prazoEntregaDias) : 0,
+      observacoes:'',
+      entregas:[]
+    };
+  }
+  if(!Array.isArray(R[fid].entregas)) R[fid].entregas = [];
+  return R[fid];
+}
+function qtdRecebidaItem(rec, itemId){
+  if(!rec || !Array.isArray(rec.entregas)) return 0;
+  return rec.entregas.reduce((s,e)=> s + (e.itemId===itemId ? (Number(e.quantidade)||0) : 0), 0);
+}
+
+/* ---- Monta a visão completa de UM pedido (cotação x fornecedor vencedor) ---- */
+function montarPedido(c, fid, itens){
+  const rec = getRecebimento(c, fid);
+  const hoje = hojeISO();
+  const linhas = itens.map(it=>{
+    const pedida = Number(it.quantidade)||0;
+    const recebida = qtdRecebidaItem(rec, it.id);
+    const unit = Number((it.precos||{})[fid])||0;
+    const pendente = Math.max(0, pedida - recebida);
+    return {
+      id: it.id, descricao: it.descricao, unidade: it.unidade,
+      pedida, recebida, pendente, unit,
+      valorPedido: pedida*unit,
+      valorRecebido: Math.min(recebida, pedida)*unit,
+      valorPendente: pendente*unit,
+      excedente: Math.max(0, recebida - pedida)
+    };
+  }).sort((a,b)=> (b.pendente>0?1:0)-(a.pendente>0?1:0) || normTxt(a.descricao).localeCompare(normTxt(b.descricao)));
+
+  const totalPedida    = linhas.reduce((s,l)=>s+l.pedida,0);
+  const totalRecebida  = linhas.reduce((s,l)=>s+Math.min(l.recebida,l.pedida),0);
+  const totalPendente  = linhas.reduce((s,l)=>s+l.pendente,0);
+  const valorPedido    = linhas.reduce((s,l)=>s+l.valorPedido,0);
+  const valorRecebido  = linhas.reduce((s,l)=>s+l.valorRecebido,0);
+  const valorPendente  = linhas.reduce((s,l)=>s+l.valorPendente,0);
+  const itensPendentes = linhas.filter(l=>l.pendente>0).length;
+  const prazoFinal = rec.dataEnvio && Number(rec.prazoDias)>0 ? somarDiasISO(rec.dataEnvio, rec.prazoDias) : '';
+
+  let status='AGUARDANDO', diasAtraso=0, diasRestantes=null;
+  if(totalPedida>0 && totalPendente===0){
+    status = 'COMPLETO';
+  } else if(!rec.dataEnvio){
+    status = 'AGUARDANDO';
+  } else if(!prazoFinal){
+    status = 'SEM_PRAZO';
+  } else {
+    const d = diasEntreISO(hoje, prazoFinal);
+    if(d < 0){ status='ATRASADO'; diasAtraso = -d; }
+    else if(d === 0){ status='VENCE_HOJE'; diasRestantes = 0; }
+    else { status='NO_PRAZO'; diasRestantes = d; }
+  }
+
+  const datas = (rec.entregas||[]).map(e=>e.data).filter(Boolean).sort();
+  const ultimaEntrega = datas.length ? datas[datas.length-1] : '';
+  let pontual = null; // só faz sentido quando o pedido já foi entregue por completo
+  if(status==='COMPLETO' && prazoFinal && ultimaEntrega) pontual = (ultimaEntrega <= prazoFinal);
+
+  return {
+    chave: c.id+'|'+fid, cotacaoId:c.id, numero:c.numero, destino:c.destino,
+    solicitante:c.solicitante, dataFechamento:c.dataFechamento,
+    fid, fornecedor: fornecedorNome(fid), rec, linhas,
+    totalPedida, totalRecebida, totalPendente,
+    valorPedido, valorRecebido, valorPendente,
+    itensPendentes, itensTotal: linhas.length,
+    prazoFinal, status, diasAtraso, diasRestantes, ultimaEntrega, pontual,
+    pctAtendido: totalPedida>0 ? (totalRecebida/totalPedida*100) : 0,
+    qtdEntregas: (rec.entregas||[]).length
+  };
+}
+
+/* ---- Todos os pedidos gerados pelas cotações já FECHADAS ---- */
+function listaPedidos(){
+  const out = [];
+  STATE.cotacoes.filter(c=>c.status==='FECHADA').forEach(c=>{
+    const mapa = itensVencidosPorFornecedor(c);
+    Object.keys(mapa).forEach(fid=>{ out.push(montarPedido(c, fid, mapa[fid])); });
+  });
+  const ordem = { ATRASADO:0, VENCE_HOJE:1, NO_PRAZO:2, SEM_PRAZO:3, AGUARDANDO:4, COMPLETO:5 };
+  return out.sort((a,b)=>
+    (ordem[a.status]-ordem[b.status]) ||
+    (b.diasAtraso - a.diasAtraso) ||
+    (b.dataFechamento||'').localeCompare(a.dataFechamento||'') ||
+    normTxt(a.fornecedor).localeCompare(normTxt(b.fornecedor))
+  );
+}
+function getPedido(chave){
+  if(!chave) return null;
+  const p = String(chave).split('|');
+  const c = getCotacao(p[0]); if(!c) return null;
+  const mapa = itensVencidosPorFornecedor(c);
+  if(!mapa[p[1]]) return null;
+  return montarPedido(c, p[1], mapa[p[1]]);
+}
+function pedidosAtrasados(){
+  try{ return listaPedidos().filter(p=>p.status==='ATRASADO'); }catch(e){ return []; }
+}
+/* Alerta de tela mostrado ao entrar no sistema quando há prazo vencido. */
+function alertarPedidosAtrasados(){
+  const atras = pedidosAtrasados();
+  if(atras.length===0) return;
+  const pior = atras[0];
+  showToast('⛔ ATENÇÃO: '+atras.length+' pedido(s) com o prazo de entrega VENCIDO — o mais crítico é a cotação '+pior.numero+' ('+pior.fornecedor+'), com '+pior.diasAtraso+' dia(s) de atraso. Confira em "3. Conferência de Pedidos".', 'error');
+}
+
+/* ---- Ações do usuário ---- */
+function setFiltroConferencia(campo, valor){ filtroConferencia[campo] = valor; render(); }
+function abrirPedidoConferencia(chave){ pedidoConfSel = chave; render(); }
+function voltarListaConferencia(){ pedidoConfSel = null; render(); }
+
+function salvarEnvioPrazoPedido(chave){
+  if(semPermissao('conferenciaPedidos')) return;
+  const p = String(chave).split('|');
+  const c = getCotacao(p[0]); if(!c) return;
+  const rec = getRecebimento(c, p[1]);
+  const dataEnvio = (document.getElementById('pedDataEnvio')?.value || '').trim();
+  const prazoDias = Math.max(0, Math.round(Number(document.getElementById('pedPrazoDias')?.value)||0));
+  const obs = (document.getElementById('pedObs')?.value || '').trim();
+  if(dataEnvio && !/^\d{4}-\d{2}-\d{2}$/.test(dataEnvio)){ showToast('Data de envio inválida.'); return; }
+  rec.dataEnvio = dataEnvio;
+  rec.prazoDias = prazoDias;
+  rec.observacoes = obs;
+  saveState(true); render();
+  if(dataEnvio && prazoDias>0){
+    showToast('Envio registrado. Prazo final para entrega: '+fmtDateBR(somarDiasISO(dataEnvio, prazoDias))+'.', 'success');
+  } else if(dataEnvio){
+    showToast('Envio registrado em '+fmtDateBR(dataEnvio)+', mas sem prazo em dias — informe o prazo para o sistema poder cobrar o atraso.', 'warning');
+  } else {
+    showToast('Dados do pedido salvos.','success');
+  }
+}
+function usarPrazoDoCadastro(chave){
+  if(semPermissao('conferenciaPedidos')) return;
+  const p = String(chave).split('|');
+  const f = STATE.fornecedores.find(x=>x.id===p[1]);
+  if(!f || !(Number(f.prazoEntregaDias)>0)){
+    showToast('Este fornecedor ainda não tem prazo de entrega cadastrado. Informe em Cadastros → Fornecedores.','warning');
+    return;
+  }
+  const el = document.getElementById('pedPrazoDias');
+  if(el) el.value = Number(f.prazoEntregaDias);
+  showToast('Prazo do cadastro ('+Number(f.prazoEntregaDias)+' dias) preenchido. Clique em "Salvar envio e prazo" para confirmar.');
+}
+function registrarEntregaPedido(chave){
+  if(semPermissao('conferenciaPedidos')) return;
+  const partes = String(chave).split('|');
+  const c = getCotacao(partes[0]); if(!c) return;
+  const fid = partes[1];
+  const rec = getRecebimento(c, fid);
+  const mapa = itensVencidosPorFornecedor(c);
+  const itens = mapa[fid] || [];
+  const data = (document.getElementById('recData')?.value || '').trim() || hojeISO();
+  const nota = (document.getElementById('recNota')?.value || '').trim();
+  const obs  = (document.getElementById('recObs')?.value || '').trim();
+
+  const novas = [];
+  let excesso = 0;
+  itens.forEach(it=>{
+    const el = document.getElementById('recQtd_'+it.id);
+    if(!el) return;
+    const q = Number(el.value)||0;
+    if(q <= 0) return;
+    const pend = Math.max(0, (Number(it.quantidade)||0) - qtdRecebidaItem(rec, it.id));
+    if(q > pend) excesso++;
+    novas.push({
+      id: uid(), itemId: it.id, quantidade: q, data, nota, obs,
+      usuario: currentUser ? (currentUser.nome||currentUser.usuario) : '',
+      registradoEm: new Date().toISOString()
+    });
+  });
+  if(novas.length===0){ showToast('Informe a quantidade recebida de pelo menos um item.'); return; }
+  if(excesso>0 && !confirm(excesso+' item(ns) estão com quantidade recebida MAIOR do que a quantidade que ainda falta. Deseja registrar mesmo assim?')) return;
+
+  rec.entregas.push.apply(rec.entregas, novas);
+  saveState(true); render();
+  const p = getPedido(chave);
+  if(p && p.totalPendente===0) showToast('Entrega registrada. ✅ Pedido da cotação '+p.numero+' ('+p.fornecedor+') ENTREGUE POR COMPLETO.','success');
+  else showToast('Entrega registrada: '+novas.length+' item(ns) em '+fmtDateBR(data)+'.'+(p?' Ainda faltam '+fmtNum(p.totalPendente)+' unidade(s) em '+p.itensPendentes+' item(ns).':''),'success');
+}
+function receberTudoPedido(chave){
+  if(semPermissao('conferenciaPedidos')) return;
+  const p = getPedido(chave); if(!p) return;
+  if(p.totalPendente<=0){ showToast('Este pedido já foi entregue por completo.'); return; }
+  const data = (document.getElementById('recData')?.value || '').trim() || hojeISO();
+  const nota = (document.getElementById('recNota')?.value || '').trim();
+  const obs  = (document.getElementById('recObs')?.value || '').trim();
+  if(!confirm('Dar baixa em TUDO o que ainda falta deste pedido ('+fmtNum(p.totalPendente)+' unidade(s) em '+p.itensPendentes+' item(ns)), com data de '+fmtDateBR(data)+'?')) return;
+  const c = getCotacao(p.cotacaoId); if(!c) return;
+  const rec = getRecebimento(c, p.fid);
+  p.linhas.filter(l=>l.pendente>0).forEach(l=>{
+    rec.entregas.push({
+      id: uid(), itemId: l.id, quantidade: l.pendente, data, nota, obs,
+      usuario: currentUser ? (currentUser.nome||currentUser.usuario) : '',
+      registradoEm: new Date().toISOString()
+    });
+  });
+  saveState(true); render();
+  showToast('✅ Pedido da cotação '+p.numero+' ('+p.fornecedor+') marcado como entregue por completo.','success');
+}
+function excluirEntregaPedido(chave, eid){
+  if(semPermissao('conferenciaPedidos')) return;
+  const partes = String(chave).split('|');
+  const c = getCotacao(partes[0]); if(!c) return;
+  const rec = getRecebimento(c, partes[1]);
+  const e = rec.entregas.find(x=>x.id===eid); if(!e) return;
+  if(!confirm('Excluir este registro de entrega? A quantidade voltará a constar como pendente.')) return;
+  rec.entregas = rec.entregas.filter(x=>x.id!==eid);
+  saveState(true); render();
+  showToast('Registro de entrega excluído.');
+}
+
+/* ---- Tela: lista de pedidos ---- */
+function viewConferenciaPedidos(){
+  if(pedidoConfSel){
+    const p = getPedido(pedidoConfSel);
+    if(p) return viewPedidoDetalhe(p);
+    pedidoConfSel = null; // pedido não existe mais (cotação reaberta/excluída)
+  }
+  const todos = listaPedidos();
+  const atras = todos.filter(p=>p.status==='ATRASADO');
+  const hojeVence = todos.filter(p=>p.status==='VENCE_HOJE');
+  const completos = todos.filter(p=>p.status==='COMPLETO');
+  const semPrazoCad = todos.filter(p=>p.status==='SEM_PRAZO');
+  const itensPend = todos.reduce((s,p)=>s+p.itensPendentes,0);
+  const valorPend = todos.reduce((s,p)=>s+p.valorPendente,0);
+
+  const termo = normTxt(filtroConferencia.termo);
+  let lista = todos;
+  if(termo) lista = lista.filter(p=>
+    normTxt(p.numero).includes(termo) || normTxt(p.fornecedor).includes(termo) ||
+    normTxt(p.destino||'').includes(termo) || p.linhas.some(l=>normTxt(l.descricao).includes(termo))
+  );
+  if(filtroConferencia.status==='PENDENTE') lista = lista.filter(p=>p.status!=='COMPLETO');
+  else if(filtroConferencia.status) lista = lista.filter(p=>p.status===filtroConferencia.status);
+
+  const alerta = atras.length ? `
+    <div class="alerta-atraso">
+      <b>⛔ ATENÇÃO: ${atras.length} pedido(s) com o prazo de entrega VENCIDO.</b>
+      <ul>
+        ${atras.slice(0,8).map(p=>`<li>Cotação <b>${esc(p.numero)}</b> — <b>${esc(p.fornecedor)}</b>: faltam ${fmtNum(p.totalPendente)} unidade(s) em ${p.itensPendentes} item(ns) — <b>${p.diasAtraso} dia(s) de atraso</b> (prazo final era ${fmtDateBR(p.prazoFinal)}) — ${fmtMoney(p.valorPendente)} não entregues.</li>`).join('')}
+      </ul>
+      ${atras.length>8?`<div style="margin-top:7px;">…e mais ${atras.length-8} pedido(s) atrasado(s). Use o filtro <b>Atrasado</b> abaixo para ver todos.</div>`:''}
+    </div>` : (todos.length ? `<div class="alerta-ok">✅ Nenhum pedido com o prazo de entrega vencido no momento.</div>` : '');
+
+  const avisoHoje = hojeVence.length ? `<div class="alerta-aviso">⚠️ <b>${hojeVence.length} pedido(s) vencem HOJE</b> — ${hojeVence.slice(0,4).map(p=>esc(p.numero)+' ('+esc(p.fornecedor)+')').join(', ')}${hojeVence.length>4?'…':''}.</div>` : '';
+  const avisoSemPrazo = semPrazoCad.length ? `<div class="alerta-aviso">❔ <b>${semPrazoCad.length} pedido(s) sem prazo de entrega definido</b> — sem o prazo em dias o sistema não consegue avisar do atraso. Cadastre o prazo em <b>Cadastros → Fornecedores</b> ou direto no pedido.</div>` : '';
+
+  return `
+    ${alerta}${avisoHoje}${avisoSemPrazo}
+    <div class="card">
+      <h2>📥 Conferência de Pedidos — Recebimento dos itens vencidos</h2>
+      <div class="subtitle">Cada cotação fechada gera um pedido para cada fornecedor vencedor. Aqui você confere, item a item, se o fornecedor entregou tudo o que venceu — e o sistema avisa quando o prazo de entrega estoura.</div>
+      <div class="grid cols-4" style="margin-bottom:6px;">
+        <div class="stat"><div class="label">Pedidos gerados</div><div class="value">${todos.length}</div><div class="hint">a partir das cotações fechadas</div></div>
+        <div class="stat"><div class="label">Entregues por completo</div><div class="value" style="color:var(--green);">${completos.length}</div><div class="hint">${todos.length?fmtPct(completos.length/todos.length*100):'0,0%'} do total</div></div>
+        <div class="stat"><div class="label">Pedidos atrasados</div><div class="value" style="color:${atras.length?'var(--red)':'var(--teal-dark)'};">${atras.length}</div><div class="hint">prazo de entrega já vencido</div></div>
+        <div class="stat"><div class="label">Itens pendentes</div><div class="value" style="color:${itensPend?'var(--amber)':'var(--teal-dark)'};">${itensPend}</div><div class="hint">${fmtMoney(valorPend)} ainda não entregues</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="dash-filtros" style="margin-bottom:12px;">
+        <div class="dash-filtro" style="flex:2;">
+          <div class="filtro-label">Buscar</div>
+          <input value="${esc(filtroConferencia.termo)}" oninput="setFiltroConferencia('termo', this.value)" placeholder="Nº da cotação, fornecedor, destino ou nome do produto..." style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:12.5px;font-family:inherit;">
+        </div>
+        <div class="dash-filtro">
+          <div class="filtro-label">Situação</div>
+          <select onchange="setFiltroConferencia('status', this.value)">
+            <option value="" ${filtroConferencia.status===''?'selected':''}>Todos os pedidos</option>
+            <option value="PENDENTE" ${filtroConferencia.status==='PENDENTE'?'selected':''}>⏳ Só os que ainda têm pendência</option>
+            <option value="ATRASADO" ${filtroConferencia.status==='ATRASADO'?'selected':''}>⛔ Atrasados</option>
+            <option value="VENCE_HOJE" ${filtroConferencia.status==='VENCE_HOJE'?'selected':''}>⚠️ Vencem hoje</option>
+            <option value="NO_PRAZO" ${filtroConferencia.status==='NO_PRAZO'?'selected':''}>🕒 No prazo</option>
+            <option value="AGUARDANDO" ${filtroConferencia.status==='AGUARDANDO'?'selected':''}>📭 Aguardando envio</option>
+            <option value="SEM_PRAZO" ${filtroConferencia.status==='SEM_PRAZO'?'selected':''}>❔ Sem prazo definido</option>
+            <option value="COMPLETO" ${filtroConferencia.status==='COMPLETO'?'selected':''}>✅ Entregues por completo</option>
+          </select>
+        </div>
+        ${(filtroConferencia.termo||filtroConferencia.status)?`<div class="dash-filtro" style="flex:0 0 auto;display:flex;align-items:flex-end;"><button class="btn-limpar-filtros" onclick="filtroConferencia={termo:'',status:''};render();">✕ limpar filtros</button></div>`:''}
+      </div>
+
+      ${todos.length===0 ? `<div class="helpbox">Nenhum pedido a conferir ainda. Os pedidos aparecem aqui automaticamente assim que uma cotação é <b>fechada</b> e algum fornecedor sai vencedor de pelo menos um item.</div>`
+        : lista.length===0 ? `<div class="helpbox">Nenhum pedido encontrado para este filtro.</div>`
+        : lista.map(p=>{
+            const si = statusPedidoInfo(p.status);
+            const pct = Math.min(100, p.pctAtendido);
+            const classeBarra = pct>=100 ? '' : (pct>0 ? 'parcial' : 'zero');
+            let prazoTxt = '';
+            if(p.status==='ATRASADO') prazoTxt = `<b style="color:var(--red);">⛔ ${p.diasAtraso} dia(s) de atraso</b> · prazo final: ${fmtDateBR(p.prazoFinal)}`;
+            else if(p.status==='VENCE_HOJE') prazoTxt = `<b style="color:#8A6A16;">⚠️ o prazo vence HOJE</b> (${fmtDateBR(p.prazoFinal)})`;
+            else if(p.status==='NO_PRAZO') prazoTxt = `faltam <b>${p.diasRestantes} dia(s)</b> · prazo final: ${fmtDateBR(p.prazoFinal)}`;
+            else if(p.status==='COMPLETO') prazoTxt = p.ultimaEntrega ? `última entrega em ${fmtDateBR(p.ultimaEntrega)}${p.pontual===true?' · <b style="color:var(--green);">no prazo</b>':(p.pontual===false?' · <b style="color:var(--red);">fora do prazo</b>':'')}` : 'entrega concluída';
+            else if(p.status==='AGUARDANDO') prazoTxt = 'o envio do pedido ao fornecedor ainda não foi registrado';
+            else prazoTxt = 'informe o prazo de entrega em dias para o sistema controlar o atraso';
+            return `
+            <div class="ped-list-item ${si.borda}" onclick="abrirPedidoConferencia('${p.chave}')">
+              <div class="ped-top">
+                <div style="min-width:0;">
+                  <div class="ped-num">Cotação ${esc(p.numero)} · ${esc(p.fornecedor)}</div>
+                  <div class="ped-meta">${esc(p.destino)||'sem destino'} · fechada em ${fmtDateBR(p.dataFechamento)} · ${p.itensTotal} item(ns) vencido(s) · ${fmtMoney(p.valorPedido)}</div>
+                  <div class="ped-meta">${prazoTxt}</div>
+                </div>
+                <div style="text-align:right;flex:0 0 auto;">
+                  <span class="status-pill ${si.pill}">${si.ic} ${si.label}</span>
+                  <div class="ped-meta" style="margin-top:6px;">
+                    Recebido <b>${fmtNum(p.totalRecebida)}</b> de <b>${fmtNum(p.totalPedida)}</b> (${fmtPct(p.pctAtendido)})
+                    ${p.totalPendente>0?`<br><b style="color:var(--red);">faltam ${fmtNum(p.totalPendente)} un. · ${fmtMoney(p.valorPendente)}</b>`:''}
+                  </div>
+                </div>
+              </div>
+              <div class="ped-prog"><div class="ped-prog-fill ${classeBarra}" style="width:${pct.toFixed(1)}%;"></div></div>
+            </div>`;
+          }).join('')}
+    </div>
+  `;
+}
+
+/* ---- Tela: conferência de um pedido específico ---- */
+function viewPedidoDetalhe(p){
+  const podeEd = podeEditar('conferenciaPedidos');
+  const si = statusPedidoInfo(p.status);
+  const f = STATE.fornecedores.find(x=>x.id===p.fid);
+  const prazoCadastro = f && Number(f.prazoEntregaDias)>0 ? Number(f.prazoEntregaDias) : 0;
+  const entregas = (p.rec.entregas||[]).slice().sort((a,b)=> (b.data||'').localeCompare(a.data||'') || (b.registradoEm||'').localeCompare(a.registradoEm||''));
+  const descItem = (itemId)=>{ const l = p.linhas.find(x=>x.id===itemId); return l ? l.descricao : '(item removido da cotação)'; };
+
+  const faixaAlerta = p.status==='ATRASADO'
+    ? `<div class="alerta-atraso"><b>⛔ PRAZO DE ENTREGA VENCIDO HÁ ${p.diasAtraso} DIA(S).</b><br>
+        O pedido foi enviado a <b>${esc(p.fornecedor)}</b> em ${fmtDateBR(p.rec.dataEnvio)}, com prazo de ${Number(p.rec.prazoDias)} dia(s) — deveria ter sido entregue até <b>${fmtDateBR(p.prazoFinal)}</b>.
+        Ainda faltam <b>${fmtNum(p.totalPendente)} unidade(s)</b> em <b>${p.itensPendentes} item(ns)</b>, no valor de <b>${fmtMoney(p.valorPendente)}</b>. Cobre o fornecedor.</div>`
+    : p.status==='VENCE_HOJE'
+    ? `<div class="alerta-aviso">⚠️ <b>O prazo de entrega deste pedido vence HOJE (${fmtDateBR(p.prazoFinal)}).</b> Ainda faltam ${fmtNum(p.totalPendente)} unidade(s) em ${p.itensPendentes} item(ns).</div>`
+    : p.status==='COMPLETO'
+    ? `<div class="alerta-ok">✅ <b>Pedido entregue por completo.</b> Todos os ${p.itensTotal} item(ns) vencidos por ${esc(p.fornecedor)} nesta cotação foram recebidos${p.ultimaEntrega?' (última entrega em '+fmtDateBR(p.ultimaEntrega)+')':''}${p.pontual===true?' — <b>dentro do prazo</b>.':(p.pontual===false?' — <b>fora do prazo</b>.':'.')}</div>`
+    : p.status==='AGUARDANDO'
+    ? `<div class="alerta-aviso">📭 <b>Envio do pedido ainda não registrado.</b> Informe abaixo a data em que o pedido foi enviado a ${esc(p.fornecedor)} — é a partir dela que o prazo de entrega passa a ser contado.</div>`
+    : `<div class="alerta-aviso">❔ <b>Sem prazo de entrega definido para este pedido.</b> Informe o prazo em dias abaixo (ou cadastre-o em Cadastros → Fornecedores) para o sistema poder avisar quando o prazo estourar.</div>`;
+
+  return `
+    ${faixaAlerta}
+    <div class="card">
+      <div class="flexrow">
+        <button class="btn ghost small" onclick="voltarListaConferencia()">← Voltar à lista de pedidos</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <span class="status-pill ${si.pill}">${si.ic} ${si.label}</span>
+          <button class="btn ghost small" onclick="printReportAsk('pedidoPrint','Conferência do Pedido — Cotação ${esc(p.numero)}')">🖨️ Imprimir</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card edit-only">
+      <h2>📤 Envio do pedido e prazo de entrega</h2>
+      <div class="subtitle">A contagem do prazo começa na data de envio do pedido ao fornecedor. Prazo final = data de envio + prazo em dias corridos.</div>
+      <div class="formgrid">
+        <div class="field"><label>Data de envio do pedido</label><input type="date" id="pedDataEnvio" value="${esc(p.rec.dataEnvio||'')}"></div>
+        <div class="field"><label>Prazo de entrega (dias)</label><input type="number" min="0" step="1" id="pedPrazoDias" value="${Number(p.rec.prazoDias)>0?Number(p.rec.prazoDias):''}" placeholder="${prazoCadastro?prazoCadastro:'Ex: 15'}"></div>
+        <div class="field half"><label>Observações do pedido</label><input id="pedObs" value="${esc(p.rec.observacoes||'')}" placeholder="Ex: entrega parcelada combinada por telefone"></div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" onclick="salvarEnvioPrazoPedido('${p.chave}')">💾 Salvar envio e prazo</button>
+        ${prazoCadastro?`<button class="btn secondary" onclick="usarPrazoDoCadastro('${p.chave}')">⏱️ Usar prazo do cadastro (${prazoCadastro} dias)</button>`:`<span class="muted" style="align-self:center;font-size:12px;">Este fornecedor não tem prazo cadastrado em Cadastros → Fornecedores.</span>`}
+      </div>
+    </div>
+
+    <div id="pedidoPrint">
+      ${reportHeaderHTML({numero:p.numero, solicitante:p.solicitante, destino:p.destino, data:fmtDateBR(p.dataFechamento), status:'FECHADA', rotulo:'Conferência do Pedido — Cotação'})}
+      <div class="card">
+        <h2>Pedido — ${esc(p.fornecedor)}</h2>
+        <div class="conf-kv" style="margin-bottom:14px;">
+          <div><span class="k">Data de envio</span><b class="v">${p.rec.dataEnvio?fmtDateBR(p.rec.dataEnvio):'não registrada'}</b></div>
+          <div><span class="k">Prazo de entrega</span><b class="v">${Number(p.rec.prazoDias)>0?Number(p.rec.prazoDias)+' dia(s)':'não definido'}</b></div>
+          <div><span class="k">Prazo final</span><b class="v" style="color:${p.status==='ATRASADO'?'var(--red)':'var(--ink)'};">${p.prazoFinal?fmtDateBR(p.prazoFinal):'—'}</b></div>
+          <div><span class="k">Situação</span><b class="v">${si.label}${p.status==='ATRASADO'?' ('+p.diasAtraso+' dia(s))':(p.status==='NO_PRAZO'?' (faltam '+p.diasRestantes+' dia(s))':'')}</b></div>
+        </div>
+        <div class="grid cols-4" style="margin-bottom:14px;">
+          <div class="stat"><div class="label">Qtd. pedida</div><div class="value">${fmtNum(p.totalPedida)}</div><div class="hint">${p.itensTotal} item(ns) · ${fmtMoney(p.valorPedido)}</div></div>
+          <div class="stat"><div class="label">Qtd. recebida</div><div class="value" style="color:var(--green);">${fmtNum(p.totalRecebida)}</div><div class="hint">${fmtPct(p.pctAtendido)} · ${fmtMoney(p.valorRecebido)}</div></div>
+          <div class="stat"><div class="label">Qtd. pendente</div><div class="value" style="color:${p.totalPendente?'var(--red)':'var(--green)'};">${fmtNum(p.totalPendente)}</div><div class="hint">${p.itensPendentes} item(ns) · ${fmtMoney(p.valorPendente)}</div></div>
+          <div class="stat"><div class="label">Entregas registradas</div><div class="value">${p.qtdEntregas}</div><div class="hint">${p.ultimaEntrega?'última em '+fmtDateBR(p.ultimaEntrega):'nenhuma até agora'}</div></div>
+        </div>
+
+        ${podeEd?`
+        <div class="helpbox">
+          📥 <b>Como dar baixa:</b> digite na coluna <b>"Receber agora"</b> quanto chegou de cada item, confirme a data e o número da nota fiscal logo abaixo e clique em <b>Registrar entrega</b>.
+          Pode fazer isso quantas vezes quiser — entregas parciais vão somando e o que faltar continua aparecendo como pendente.
+        </div>
+        <div class="formgrid" style="margin-bottom:12px;">
+          <div class="field"><label>Data do recebimento</label><input type="date" id="recData" value="${hojeISO()}"></div>
+          <div class="field"><label>Nota fiscal / documento</label><input id="recNota" placeholder="Ex: NF 12345"></div>
+          <div class="field half"><label>Observação da entrega</label><input id="recObs" placeholder="Ex: 2 caixas com avaria, devolvidas"></div>
+        </div>`:''}
+
+        <div class="table-wrap" style="max-height:none;">
+          <table>
+            <thead><tr>
+              <th>Item vencido</th><th>Unid.</th><th class="right">Qtd. pedida</th><th class="right">Recebido</th><th class="right">Pendente</th>
+              <th class="right">Vlr. unit.</th><th class="right">Valor pendente</th>${podeEd?`<th class="no-print right">Receber agora</th>`:''}
+            </tr></thead>
+            <tbody>
+              ${p.linhas.length===0?`<tr class="empty-row"><td colspan="${podeEd?8:7}">Nenhum item vencido por este fornecedor nesta cotação.</td></tr>`:
+                p.linhas.map(l=>`
+                <tr class="${l.pendente===0?'linha-completa':''}">
+                  <td style="white-space:normal;min-width:220px;"><b>${esc(l.descricao)}</b>${l.excedente>0?` <span class="badge tipo-disp" title="Recebido a mais do que o pedido">+${fmtNum(l.excedente)} a mais</span>`:''}</td>
+                  <td>${esc(l.unidade)||'—'}</td>
+                  <td class="right">${fmtNum(l.pedida)}</td>
+                  <td class="right ${l.pendente===0?'qtd-ok':''}">${fmtNum(l.recebida)}</td>
+                  <td class="right ${l.pendente>0?'qtd-pendente':'qtd-ok'}">${l.pendente>0?fmtNum(l.pendente):'✓ 0'}</td>
+                  <td class="right">${fmtMoney(l.unit)}</td>
+                  <td class="right">${l.valorPendente>0?fmtMoney(l.valorPendente):'—'}</td>
+                  ${podeEd?`<td class="no-print right">${l.pendente>0?`<input class="rec-input" type="number" min="0" step="any" id="recQtd_${l.id}" placeholder="0" title="Máximo pendente: ${fmtNum(l.pendente)}">`:'<span class="muted">completo</span>'}</td>`:''}
+                </tr>`).join('')}
+            </tbody>
+            <tfoot><tr>
+              <td colspan="2">TOTAL</td>
+              <td class="right">${fmtNum(p.totalPedida)}</td>
+              <td class="right">${fmtNum(p.totalRecebida)}</td>
+              <td class="right">${fmtNum(p.totalPendente)}</td>
+              <td></td>
+              <td class="right">${fmtMoney(p.valorPendente)}</td>${podeEd?'<td class="no-print"></td>':''}
+            </tr></tfoot>
+          </table>
+        </div>
+
+        ${podeEd?`
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;" class="no-print">
+          <button class="btn" onclick="registrarEntregaPedido('${p.chave}')">📥 Registrar entrega</button>
+          ${p.totalPendente>0?`<button class="btn secondary" onclick="receberTudoPedido('${p.chave}')">✅ Recebi tudo o que faltava</button>`:''}
+        </div>`:''}
+      </div>
+
+      <div class="card">
+        <h2>🧾 Histórico de entregas deste pedido (${entregas.length})</h2>
+        <div class="subtitle">Todo recebimento registrado fica guardado aqui, com data, nota fiscal e quem lançou. Nada é sobrescrito.</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Data</th><th>Item</th><th class="right">Qtd.</th><th>Nota fiscal</th><th>Observação</th><th>Registrado por</th>${podeEd?'<th class="no-print"></th>':''}</tr></thead>
+            <tbody>
+              ${entregas.length===0?`<tr class="empty-row"><td colspan="${podeEd?7:6}">Nenhuma entrega registrada até o momento.</td></tr>`:
+                entregas.map(e=>`
+                <tr class="entrega-row">
+                  <td>${fmtDateBR(e.data)}</td>
+                  <td style="white-space:normal;min-width:200px;">${esc(descItem(e.itemId))}</td>
+                  <td class="right"><b>${fmtNum(e.quantidade)}</b></td>
+                  <td>${esc(e.nota)||'—'}</td>
+                  <td style="white-space:normal;">${esc(e.obs)||'—'}</td>
+                  <td>${esc(e.usuario)||'—'}</td>
+                  ${podeEd?`<td class="no-print"><button class="btn ghost small" onclick="excluirEntregaPedido('${p.chave}','${e.id}')">🗑 excluir</button></td>`:''}
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${p.rec.observacoes?`<div class="helpbox" style="margin-top:12px;margin-bottom:0;">📝 <b>Observações do pedido:</b> ${esc(p.rec.observacoes)}</div>`:''}
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================================
+   RELATÓRIOS DO MÓDULO 3 — ENTREGAS E PENDÊNCIAS
+   ============================================================ */
+function agregadosEntregas(){
+  const pedidos = listaPedidos();
+  const porForn = {};   // fid -> consolidado do fornecedor
+  pedidos.forEach(p=>{
+    if(!porForn[p.fid]) porForn[p.fid] = {
+      fid:p.fid, nome:p.fornecedor, pedidos:0, completos:0, atrasados:0, pontuais:0, foraPrazo:0,
+      qtdPedida:0, qtdRecebida:0, qtdPendente:0, valorPedido:0, valorRecebido:0, valorPendente:0,
+      itensPendentes:0, diasAtrasoTotal:0, prazosMedidos:0, diasEntregaTotal:0
+    };
+    const a = porForn[p.fid];
+    a.pedidos++;
+    if(p.status==='COMPLETO') a.completos++;
+    if(p.status==='ATRASADO'){ a.atrasados++; a.diasAtrasoTotal += p.diasAtraso; }
+    if(p.pontual===true) a.pontuais++;
+    if(p.pontual===false) a.foraPrazo++;
+    a.qtdPedida += p.totalPedida; a.qtdRecebida += p.totalRecebida; a.qtdPendente += p.totalPendente;
+    a.valorPedido += p.valorPedido; a.valorRecebido += p.valorRecebido; a.valorPendente += p.valorPendente;
+    a.itensPendentes += p.itensPendentes;
+    if(p.status==='COMPLETO' && p.rec.dataEnvio && p.ultimaEntrega){
+      a.prazosMedidos++; a.diasEntregaTotal += Math.max(0, diasEntreISO(p.rec.dataEnvio, p.ultimaEntrega));
+    }
+  });
+  const fornecedores = Object.keys(porForn).map(k=>{
+    const a = porForn[k];
+    // % atendido calculado em VALOR (R$): entre cotações diferentes as unidades
+    // se misturam (caixa, frasco, ampola…), então somar quantidades distorceria.
+    a.pctAtendido = a.valorPedido>0 ? (a.valorRecebido/a.valorPedido*100) : 0;
+    a.avaliados = a.pontuais + a.foraPrazo;
+    a.pontualidade = a.avaliados>0 ? (a.pontuais/a.avaliados*100) : null;
+    a.mediaDiasEntrega = a.prazosMedidos>0 ? (a.diasEntregaTotal/a.prazosMedidos) : null;
+    return a;
+  }).sort((a,b)=> b.valorPendente-a.valorPendente || normTxt(a.nome).localeCompare(normTxt(b.nome)));
+  return { pedidos, fornecedores };
+}
+
+function viewRelEntregas(){
+  const { pedidos, fornecedores } = agregadosEntregas();
+  const atras = pedidos.filter(p=>p.status==='ATRASADO');
+  const completos = pedidos.filter(p=>p.status==='COMPLETO');
+  const qtdPedida = pedidos.reduce((s,p)=>s+p.totalPedida,0);
+  const qtdRecebida = pedidos.reduce((s,p)=>s+p.totalRecebida,0);
+  const valorPendente = pedidos.reduce((s,p)=>s+p.valorPendente,0);
+  const valorPedido = pedidos.reduce((s,p)=>s+p.valorPedido,0);
+  const valorRecebido = pedidos.reduce((s,p)=>s+p.valorRecebido,0);
+  const avaliados = pedidos.filter(p=>p.pontual!==null && p.pontual!==undefined);
+  const pontuais = avaliados.filter(p=>p.pontual===true).length;
+
+  return `
+    ${atras.length?`<div class="alerta-atraso"><b>⛔ ${atras.length} pedido(s) com o prazo de entrega vencido</b> — ${fmtMoney(atras.reduce((s,p)=>s+p.valorPendente,0))} em itens não entregues. Veja o detalhe em <b>3. Conferência de Pedidos</b>.</div>`:''}
+    <div class="card">
+      <div class="flexrow" style="margin-bottom:8px;">
+        <h2 style="margin:0;">📥 Relatório de Entregas e Prazos por Fornecedor</h2>
+        <button class="btn ghost small" onclick="printReportAsk('relEntregasPrint','Relatório de Entregas e Prazos')">🖨️ Imprimir</button>
+      </div>
+      <div class="subtitle">Consolidado do módulo "3. Conferência de Pedidos": o quanto cada fornecedor realmente entregou do que venceu nas cotações e se cumpriu o prazo acordado.</div>
+      <div id="relEntregasPrint">
+        ${reportHeaderHTML({numero:'—', solicitante:'—', destino:'Todos', data:new Date().toLocaleDateString('pt-BR'), rotulo:'Relatório de Entregas'})}
+        <div class="grid cols-4" style="margin-bottom:16px;">
+          <div class="stat"><div class="label">Pedidos gerados</div><div class="value">${pedidos.length}</div><div class="hint">${fmtMoney(valorPedido)} pedidos ao todo</div></div>
+          <div class="stat"><div class="label">Entregues por completo</div><div class="value" style="color:var(--green);">${completos.length}</div><div class="hint">${pedidos.length?fmtPct(completos.length/pedidos.length*100):'0,0%'} dos pedidos</div></div>
+          <div class="stat"><div class="label">Atendimento geral</div><div class="value">${valorPedido>0?fmtPct(valorRecebido/valorPedido*100):'—'}</div><div class="hint">${fmtMoney(valorRecebido)} de ${fmtMoney(valorPedido)} entregues</div></div>
+          <div class="stat"><div class="label">Pontualidade</div><div class="value" style="color:${avaliados.length&&pontuais/avaliados.length>=0.8?'var(--green)':'var(--amber)'};">${avaliados.length?fmtPct(pontuais/avaliados.length*100):'—'}</div><div class="hint">${pontuais} de ${avaliados.length} pedidos concluídos no prazo</div></div>
+        </div>
+        ${valorPendente>0?`<div class="alerta-aviso">💰 <b>${fmtMoney(valorPendente)}</b> em itens pagos/adjudicados que ainda não foram entregues pelos fornecedores.</div>`:''}
+        <h3 style="margin:0 0 8px;">Desempenho por fornecedor</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Fornecedor</th><th class="right">Pedidos</th><th class="right">Completos</th><th class="right">Atrasados</th>
+              <th class="right">Qtd. pedida</th><th class="right">Qtd. recebida</th><th class="right">% atendido (R$)</th>
+              <th class="right">Itens pendentes</th><th class="right">Valor pendente</th><th class="right">Pontualidade</th><th class="right">Prazo médio real</th>
+            </tr></thead>
+            <tbody>
+              ${fornecedores.length===0?`<tr class="empty-row"><td colspan="11">Nenhum pedido gerado ainda. Feche uma cotação para o controle de entregas começar.</td></tr>`:
+                fornecedores.map(a=>`
+                <tr>
+                  <td><b>${esc(a.nome)}</b></td>
+                  <td class="right">${a.pedidos}</td>
+                  <td class="right">${a.completos}</td>
+                  <td class="right ${a.atrasados>0?'qtd-pendente':''}">${a.atrasados||'—'}</td>
+                  <td class="right">${fmtNum(a.qtdPedida)}</td>
+                  <td class="right">${fmtNum(a.qtdRecebida)}</td>
+                  <td class="right"><span class="pct-badge">${fmtPct(a.pctAtendido)}</span></td>
+                  <td class="right ${a.itensPendentes>0?'qtd-pendente':'qtd-ok'}">${a.itensPendentes||'—'}</td>
+                  <td class="right">${a.valorPendente>0?fmtMoney(a.valorPendente):'—'}</td>
+                  <td class="right">${a.pontualidade===null?'—':fmtPct(a.pontualidade)}</td>
+                  <td class="right">${a.mediaDiasEntrega===null?'—':(a.mediaDiasEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})+' dia(s)')}</td>
+                </tr>`).join('')}
+            </tbody>
+            <tfoot><tr>
+              <td>TOTAL</td>
+              <td class="right">${pedidos.length}</td>
+              <td class="right">${completos.length}</td>
+              <td class="right">${atras.length}</td>
+              <td class="right">${fmtNum(qtdPedida)}</td>
+              <td class="right">${fmtNum(qtdRecebida)}</td>
+              <td class="right">${valorPedido>0?fmtPct(valorRecebido/valorPedido*100):'—'}</td>
+              <td class="right">${pedidos.reduce((s,p)=>s+p.itensPendentes,0)}</td>
+              <td class="right">${fmtMoney(valorPendente)}</td>
+              <td class="right">${avaliados.length?fmtPct(pontuais/avaliados.length*100):'—'}</td>
+              <td></td>
+            </tr></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>📋 Situação pedido a pedido</h2>
+      <div class="subtitle">Cada cotação fechada gera um pedido por fornecedor vencedor.</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Cotação</th><th>Fornecedor</th><th>Destino/Setor</th><th>Envio</th><th>Prazo</th><th>Prazo final</th><th>Situação</th><th class="right">% atendido (R$)</th><th class="right">Pendente</th></tr></thead>
+          <tbody>
+            ${pedidos.length===0?`<tr class="empty-row"><td colspan="9">Sem pedidos ainda.</td></tr>`:
+              pedidos.map(p=>{
+                const si = statusPedidoInfo(p.status);
+                return `<tr>
+                  <td><b>${esc(p.numero)}</b></td>
+                  <td>${esc(p.fornecedor)}</td>
+                  <td>${esc(p.destino)||'—'}</td>
+                  <td>${p.rec.dataEnvio?fmtDateBR(p.rec.dataEnvio):'—'}</td>
+                  <td>${Number(p.rec.prazoDias)>0?Number(p.rec.prazoDias)+' dia(s)':'—'}</td>
+                  <td>${p.prazoFinal?fmtDateBR(p.prazoFinal):'—'}</td>
+                  <td><span class="status-pill ${si.pill}">${si.label}${p.status==='ATRASADO'?' — '+p.diasAtraso+'d':''}</span></td>
+                  <td class="right">${p.valorPedido>0?fmtPct(p.valorRecebido/p.valorPedido*100):'—'}</td>
+                  <td class="right ${p.valorPendente>0?'qtd-pendente':'qtd-ok'}">${p.valorPendente>0?fmtMoney(p.valorPendente):'—'}</td>
+                </tr>`;
+              }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function viewRelPendencias(){
+  const pedidos = listaPedidos();
+  const pend = [];
+  pedidos.forEach(p=>{
+    p.linhas.filter(l=>l.pendente>0).forEach(l=>{
+      pend.push({
+        numero:p.numero, fornecedor:p.fornecedor, destino:p.destino, status:p.status,
+        diasAtraso:p.diasAtraso, diasRestantes:p.diasRestantes, prazoFinal:p.prazoFinal,
+        dataEnvio:p.rec.dataEnvio, chave:p.chave,
+        descricao:l.descricao, unidade:l.unidade, pedida:l.pedida, recebida:l.recebida,
+        pendente:l.pendente, unit:l.unit, valorPendente:l.valorPendente
+      });
+    });
+  });
+  const ordem = { ATRASADO:0, VENCE_HOJE:1, NO_PRAZO:2, SEM_PRAZO:3, AGUARDANDO:4 };
+  pend.sort((a,b)=> (ordem[a.status]??9)-(ordem[b.status]??9) || (b.diasAtraso-a.diasAtraso) || (b.valorPendente-a.valorPendente));
+
+  const atrasados = pend.filter(x=>x.status==='ATRASADO');
+  const valorTotal = pend.reduce((s,x)=>s+x.valorPendente,0);
+  const valorAtrasado = atrasados.reduce((s,x)=>s+x.valorPendente,0);
+
+  // Consolidado por produto: o mesmo item pode estar pendente em várias cotações
+  const porProduto = {};
+  pend.forEach(x=>{
+    const k = normTxt(x.descricao);
+    if(!porProduto[k]) porProduto[k] = { descricao:x.descricao, unidade:x.unidade, qtd:0, valor:0, ocorrencias:0, fornecedores:new Set() };
+    porProduto[k].qtd += x.pendente;
+    porProduto[k].valor += x.valorPendente;
+    porProduto[k].ocorrencias++;
+    porProduto[k].fornecedores.add(x.fornecedor);
+  });
+  const produtos = Object.keys(porProduto).map(k=>porProduto[k]).sort((a,b)=> b.valor-a.valor || b.qtd-a.qtd);
+
+  return `
+    ${atrasados.length?`<div class="alerta-atraso"><b>⛔ ${atrasados.length} item(ns) estão com o prazo de entrega vencido</b>, somando <b>${fmtMoney(valorAtrasado)}</b> que os fornecedores ainda devem entregar.</div>`
+      :(pend.length?`<div class="alerta-ok">✅ Há pendências em aberto, mas nenhuma com o prazo vencido.</div>`:`<div class="alerta-ok">✅ Nenhuma pendência de entrega: todos os pedidos foram recebidos por completo.</div>`)}
+    <div class="card">
+      <div class="flexrow" style="margin-bottom:8px;">
+        <h2 style="margin:0;">⏳ Relatório de Itens Pendentes de Entrega</h2>
+        <button class="btn ghost small" onclick="printReportAsk('relPendPrint','Relatório de Itens Pendentes de Entrega')">🖨️ Imprimir</button>
+      </div>
+      <div class="subtitle">Tudo o que foi pedido nas cotações fechadas e ainda não chegou — serve como lista de cobrança dos fornecedores.</div>
+      <div id="relPendPrint">
+        ${reportHeaderHTML({numero:'—', solicitante:'—', destino:'Todos', data:new Date().toLocaleDateString('pt-BR'), rotulo:'Itens Pendentes'})}
+        <div class="grid cols-4" style="margin-bottom:16px;">
+          <div class="stat"><div class="label">Itens pendentes</div><div class="value" style="color:${pend.length?'var(--amber)':'var(--green)'};">${pend.length}</div><div class="hint">em ${new Set(pend.map(x=>x.numero)).size} cotação(ões)</div></div>
+          <div class="stat"><div class="label">Valor pendente</div><div class="value">${fmtMoney(valorTotal)}</div><div class="hint">total ainda não entregue</div></div>
+          <div class="stat"><div class="label">Itens em atraso</div><div class="value" style="color:${atrasados.length?'var(--red)':'var(--green)'};">${atrasados.length}</div><div class="hint">${fmtMoney(valorAtrasado)} fora do prazo</div></div>
+          <div class="stat"><div class="label">Fornecedores devedores</div><div class="value">${new Set(pend.map(x=>x.fornecedor)).size}</div><div class="hint">com alguma entrega em aberto</div></div>
+        </div>
+        <h3 style="margin:0 0 8px;">Pendências detalhadas</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Cotação</th><th>Fornecedor</th><th>Item</th><th>Unid.</th>
+              <th class="right">Pedido</th><th class="right">Recebido</th><th class="right">Falta</th>
+              <th class="right">Valor pendente</th><th>Prazo final</th><th>Situação</th>
+            </tr></thead>
+            <tbody>
+              ${pend.length===0?`<tr class="empty-row"><td colspan="10">Nenhuma pendência de entrega. 🎉</td></tr>`:
+                pend.map(x=>{
+                  const si = statusPedidoInfo(x.status);
+                  let sit = si.label;
+                  if(x.status==='ATRASADO') sit = '⛔ '+x.diasAtraso+' dia(s) de atraso';
+                  else if(x.status==='NO_PRAZO') sit = '🕒 faltam '+x.diasRestantes+' dia(s)';
+                  else if(x.status==='VENCE_HOJE') sit = '⚠️ vence hoje';
+                  return `<tr>
+                    <td><b>${esc(x.numero)}</b></td>
+                    <td>${esc(x.fornecedor)}</td>
+                    <td style="white-space:normal;min-width:220px;">${esc(x.descricao)}</td>
+                    <td>${esc(x.unidade)||'—'}</td>
+                    <td class="right">${fmtNum(x.pedida)}</td>
+                    <td class="right">${fmtNum(x.recebida)}</td>
+                    <td class="right qtd-pendente">${fmtNum(x.pendente)}</td>
+                    <td class="right">${fmtMoney(x.valorPendente)}</td>
+                    <td>${x.prazoFinal?fmtDateBR(x.prazoFinal):'—'}</td>
+                    <td><span class="status-pill ${si.pill}">${sit}</span></td>
+                  </tr>`;
+                }).join('')}
+            </tbody>
+            <tfoot><tr><td colspan="6">TOTAL PENDENTE</td><td class="right">${fmtNum(pend.reduce((s,x)=>s+x.pendente,0))}</td><td class="right">${fmtMoney(valorTotal)}</td><td colspan="2"></td></tr></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>📦 Pendências agrupadas por produto</h2>
+      <div class="subtitle">Útil para a farmácia/almoxarifado: quanto ainda falta chegar de cada produto, somando todas as cotações.</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Produto</th><th>Unid.</th><th class="right">Qtd. faltando</th><th class="right">Valor pendente</th><th class="right">Pendências</th><th>Fornecedor(es)</th></tr></thead>
+          <tbody>
+            ${produtos.length===0?`<tr class="empty-row"><td colspan="6">Nenhum produto pendente.</td></tr>`:
+              produtos.map(pr=>`<tr>
+                <td style="white-space:normal;min-width:220px;"><b>${esc(pr.descricao)}</b></td>
+                <td>${esc(pr.unidade)||'—'}</td>
+                <td class="right qtd-pendente">${fmtNum(pr.qtd)}</td>
+                <td class="right">${fmtMoney(pr.valor)}</td>
+                <td class="right">${pr.ocorrencias}</td>
+                <td style="white-space:normal;">${esc(Array.from(pr.fornecedores).join(', '))}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 /* ---------------- Navigation ----------------
    Ordem sequencial do menu: Visão Geral -> 1. Cadastros -> 2. Cotações ->
-   3. Relatórios -> 4. Administração (só master). */
+   3. Conferência de Pedidos -> 4. Relatórios -> 5. Administração (só master). */
 const NAV_BASE = [
   {group:'Visão Geral', items:[
     {id:'dashboard', label:'Dashboard', icon:'📊'},
@@ -4177,15 +5068,20 @@ const NAV_BASE = [
     {id:'cotacoesAndamento', label:'Cotações em Andamento', icon:'🗂️'},
     {id:'historicoCotacoes', label:'Histórico de Cotações', icon:'📚'},
   ]},
-  {group:'3. Relatórios', items:[
+  {group:'3. Conferência de Pedidos', items:[
+    {id:'conferenciaPedidos', label:'Recebimento e Conferência', icon:'📥'},
+  ]},
+  {group:'4. Relatórios', items:[
     {id:'relatorios', label:'Economia e Ranking de Fornecedores', icon:'📈'},
     {id:'relFornecedor', label:'Relatório por Fornecedor', icon:'🚚'},
     {id:'relProduto', label:'Relatório por Produto', icon:'📦'},
     {id:'relDestino', label:'Relatório por Destino/Setor', icon:'🏷️'},
+    {id:'relEntregas', label:'Entregas e Prazos por Fornecedor', icon:'📥'},
+    {id:'relPendencias', label:'Itens Pendentes de Entrega', icon:'⏳'},
   ]},
 ];
 const NAV_ADMIN = [
-  {group:'4. Administração', items:[
+  {group:'5. Administração', items:[
     {id:'usuarios', label:'Usuários', icon:'👤'},
     {id:'logAcesso', label:'Log de Acesso', icon:'📜'},
   ]},
@@ -4203,6 +5099,9 @@ const PAGE_META = {
   novaCotacao:['Nova Cotação','Monte a cotação: itens, fornecedores participantes e o mapa comparativo de preços.'],
   cotacoesAndamento:['Cotações em Andamento','Cotações ainda não fechadas. Clique em uma para continuar de onde parou.'],
   historicoCotacoes:['Histórico de Cotações','Cotações já fechadas, com o mapa comparativo final de cada uma.'],
+  conferenciaPedidos:['Conferência de Pedidos','Confira se os fornecedores vencedores entregaram tudo o que foi pedido em cada cotação, dentro do prazo de entrega acordado.'],
+  relEntregas:['Entregas e Prazos por Fornecedor','Quanto cada fornecedor realmente entregou do que venceu nas cotações e se cumpriu o prazo combinado.'],
+  relPendencias:['Itens Pendentes de Entrega','Tudo o que foi pedido e ainda não chegou, com os dias de atraso — lista de cobrança dos fornecedores.'],
   relatorios:['Economia e Ranking de Fornecedores','Consolidado de todas as cotações fechadas: economia gerada e ranking por fornecedor.'],
   relFornecedor:['Relatório por Fornecedor','Desempenho detalhado de um fornecedor específico: participação, taxa de vitória e valor fornecido.'],
   relProduto:['Relatório por Produto','Consolidado de todos os itens já cotados: frequência, preço médio, menor e maior preço registrados.'],
@@ -4218,6 +5117,7 @@ function navGrupoIcone(nome){
   const n = normTxt(nome);
   if(n.includes('VISAO GERAL')) return '📊';
   if(n.includes('CADASTRO')) return '🗂️';
+  if(n.includes('CONFERENCIA')) return '📥';
   if(n.includes('COTACO')) return '🛒';
   if(n.includes('RELATORIO')) return '📈';
   if(n.includes('ADMINISTRACAO')) return '🔐';
@@ -4259,6 +5159,14 @@ function limparNavBusca(){
   if(el){ el.value = ''; el.focus(); }
   renderNav();
 }
+/* Selo vermelho no menu: quantidade de pedidos com o prazo de entrega vencido.
+   É só um aviso visual — não altera nem o menu nem nenhum dado. */
+function navBadge(id){
+  if(id!=='conferenciaPedidos') return '';
+  let n = 0;
+  try{ n = pedidosAtrasados().length; }catch(e){ n = 0; }
+  return n>0 ? `<span class="navbadge" title="${n} pedido(s) com o prazo de entrega vencido">${n}</span>` : '';
+}
 function renderNav(){
   const nav = document.getElementById('navlist');
   const termo = normTxt(navBusca);
@@ -4285,7 +5193,7 @@ function renderNav(){
         <span class="chev">▶</span>
       </div>
       <div class="navgroup-items">
-        ${g.items.map(it=>`<div class="navitem ${currentView===it.id?'active':''}" onclick="goto('${it.id}')"><span class="ic">${it.icon}</span>${it.label}</div>`).join('')}
+        ${g.items.map(it=>`<div class="navitem ${currentView===it.id?'active':''}" onclick="goto('${it.id}')"><span class="ic">${it.icon}</span>${it.label}${navBadge(it.id)}</div>`).join('')}
       </div>
     </div>`;
       }).join('');
@@ -4323,13 +5231,16 @@ function render(){
   else if(currentView==='novaCotacao') v.innerHTML = viewNovaCotacao();
   else if(currentView==='cotacoesAndamento') v.innerHTML = viewCotacoesAndamento();
   else if(currentView==='historicoCotacoes') v.innerHTML = viewHistoricoCotacoes();
+  else if(currentView==='conferenciaPedidos') v.innerHTML = viewConferenciaPedidos();
+  else if(currentView==='relEntregas') v.innerHTML = viewRelEntregas();
+  else if(currentView==='relPendencias') v.innerHTML = viewRelPendencias();
   else if(currentView==='relatorios') v.innerHTML = viewRelatorios();
   else if(currentView==='relFornecedor') v.innerHTML = viewRelFornecedor();
   else if(currentView==='relProduto') v.innerHTML = viewRelProduto();
   else if(currentView==='relDestino') v.innerHTML = viewRelDestino();
   else if(currentView==='usuarios') v.innerHTML = viewUsuarios();
   else if(currentView==='logAcesso') v.innerHTML = viewLogAcesso();
-  const VIEWS_COM_FORM = ['entidade','fornecedores','categoriasFornecedores','produtos','destinos','novaCotacao'];
+  const VIEWS_COM_FORM = ['entidade','fornecedores','categoriasFornecedores','produtos','destinos','novaCotacao','conferenciaPedidos'];
   if(!podeEditar(currentView) && VIEWS_COM_FORM.includes(currentView)){
     document.querySelectorAll('.edit-only').forEach(n=> n.style.display='none');
   }
@@ -4364,6 +5275,8 @@ async function bootAfterAccessCode(){
     boasVindasPendente = false;
     setTimeout(mostrarBoasVindas, 300);
   }
+  // Aviso de tela: pedidos com o prazo de entrega já vencido (módulo 3).
+  setTimeout(alertarPedidosAtrasados, 2600);
 }
 async function iniciarComLogin(){
   await loadUsersState();
@@ -4380,14 +5293,14 @@ async function iniciarComLogin(){
 
 /* ============================================================
    ATALHOS DE TECLADO
-   Alt+1..Alt+7 — navega pelos módulos na ordem do menu
-   Alt+D — Dashboard · Alt+N — Nova Cotação · Alt+R — Relatórios
+   Alt+1..Alt+9 — navega pelos módulos na ordem do menu
+   Alt+D — Dashboard · Alt+N — Nova Cotação · Alt+C — Conferência de Pedidos · Alt+R — Relatórios
    Esc — fechar sidebar no mobile
    ============================================================ */
 const ATALHOS_MODULO = {
   '1':'dashboard','2':'fornecedores','3':'produtos','4':'destinos',
-  '5':'novaCotacao','6':'cotacoesAndamento','7':'historicoCotacoes','8':'relatorios',
-  'd':'dashboard','n':'novaCotacao','r':'relatorios','u':'usuarios'
+  '5':'novaCotacao','6':'cotacoesAndamento','7':'historicoCotacoes','8':'conferenciaPedidos','9':'relatorios',
+  'd':'dashboard','n':'novaCotacao','r':'relatorios','u':'usuarios','c':'conferenciaPedidos'
 };
 document.addEventListener('keydown', function(e){
   if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA') return;
