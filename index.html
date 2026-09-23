@@ -1028,7 +1028,7 @@ function trocarCodigoAcesso(){
    "<mês desde a criação>.<alterações no mês>.<ano>".
    ============================================================ */
 const APP_CRIACAO = { mes: 9, ano: 2026 };
-const APP_ALTERACAO = 5;
+const APP_ALTERACAO = 7;
 const APP_DATA = '2026-09-23';
 function appVersao(){
   const p = APP_DATA.split('-').map(Number);
@@ -4303,7 +4303,7 @@ function importAllData(event){
    Nada é sobrescrito: registrar uma entrega só ACRESCENTA uma linha na lista.
    ============================================================ */
 let pedidoConfSel = null;   // pedido aberto na tela: 'cotacaoId|fornecedorId'
-let filtroConferencia = { termo:'', status:'' };
+let filtroConferencia = { termo:'', status:'', fid:'', cotacaoId:'' };
 
 const PEDIDO_STATUS = {
   AGUARDANDO: { label:'Aguardando envio',        pill:'st-aguardando', borda:'b-aguardando', ic:'📭' },
@@ -4450,6 +4450,7 @@ function alertarPedidosAtrasados(){
 
 /* ---- Ações do usuário ---- */
 function setFiltroConferencia(campo, valor){ filtroConferencia[campo] = valor; render(); }
+function limparFiltroConferencia(){ filtroConferencia = { termo:'', status:'', fid:'', cotacaoId:'' }; render(); }
 function abrirPedidoConferencia(chave){ pedidoConfSel = chave; render(); }
 function voltarListaConferencia(){ pedidoConfSel = null; render(); }
 
@@ -4561,13 +4562,25 @@ function viewConferenciaPedidos(){
     if(p) return viewPedidoDetalhe(p);
     pedidoConfSel = null; // pedido não existe mais (cotação reaberta/excluída)
   }
-  const todos = listaPedidos();
+  const geral = listaPedidos();
+  const op = opcoesFiltroPedidos(geral);
+  // Se o fornecedor/cotação escolhido deixou de existir (cotação reaberta, por
+  // exemplo), a tela volta sozinha ao geral em vez de ficar vazia.
+  if(filtroConferencia.fid && !op.fornecedores.some(x=>x.id===filtroConferencia.fid)) filtroConferencia.fid = '';
+  if(filtroConferencia.cotacaoId && !op.cotacoes.some(x=>x.id===filtroConferencia.cotacaoId)) filtroConferencia.cotacaoId = '';
+  const filtroAtivo = !!(filtroConferencia.fid || filtroConferencia.cotacaoId);
+  // "todos" = o conjunto que a tela está mostrando (geral, ou o recorte escolhido).
+  const todos = aplicarFiltroPedidos(geral, filtroConferencia);
+
   const atras = todos.filter(p=>p.status==='ATRASADO');
   const hojeVence = todos.filter(p=>p.status==='VENCE_HOJE');
   const completos = todos.filter(p=>p.status==='COMPLETO');
   const semPrazoCad = todos.filter(p=>p.status==='SEM_PRAZO');
   const itensPend = todos.reduce((s,p)=>s+p.itensPendentes,0);
   const valorPend = todos.reduce((s,p)=>s+p.valorPendente,0);
+  // Rede de segurança: mesmo com o filtro ligado, o usuário é avisado de que
+  // existem atrasos fora do recorte que ele está olhando.
+  const atrasForaFiltro = geral.filter(p=>p.status==='ATRASADO').length - atras.length;
 
   const termo = normTxt(filtroConferencia.termo);
   let lista = todos;
@@ -4578,14 +4591,20 @@ function viewConferenciaPedidos(){
   if(filtroConferencia.status==='PENDENTE') lista = lista.filter(p=>p.status!=='COMPLETO');
   else if(filtroConferencia.status) lista = lista.filter(p=>p.status===filtroConferencia.status);
 
+  const foraFiltroTxt = atrasForaFiltro>0
+    ? `<div style="margin-top:7px;">➕ Existem ainda <b>${atrasForaFiltro} pedido(s) atrasado(s) fora do filtro selecionado</b>. Clique em <b>✕ voltar ao geral</b> para ver todos.</div>` : '';
   const alerta = atras.length ? `
     <div class="alerta-atraso">
-      <b>⛔ ATENÇÃO: ${atras.length} pedido(s) com o prazo de entrega VENCIDO.</b>
+      <b>⛔ ATENÇÃO: ${atras.length} pedido(s) com o prazo de entrega VENCIDO${filtroAtivo?' no filtro selecionado':''}.</b>
       <ul>
         ${atras.slice(0,8).map(p=>`<li>Cotação <b>${esc(p.numero)}</b> — <b>${esc(p.fornecedor)}</b>: faltam ${fmtNum(p.totalPendente)} unidade(s) em ${p.itensPendentes} item(ns) — <b>${p.diasAtraso} dia(s) de atraso</b> (prazo final era ${fmtDateBR(p.prazoFinal)}) — ${fmtMoney(p.valorPendente)} não entregues.</li>`).join('')}
       </ul>
       ${atras.length>8?`<div style="margin-top:7px;">…e mais ${atras.length-8} pedido(s) atrasado(s). Use o filtro <b>Atrasado</b> abaixo para ver todos.</div>`:''}
-    </div>` : (todos.length ? `<div class="alerta-ok">✅ Nenhum pedido com o prazo de entrega vencido no momento.</div>` : '');
+      ${foraFiltroTxt}
+    </div>`
+    : (atrasForaFiltro>0
+      ? `<div class="alerta-atraso">⛔ Nenhum atraso <b>no filtro selecionado</b>, mas há <b>${atrasForaFiltro} pedido(s) atrasado(s)</b> fora dele. Clique em <b>✕ voltar ao geral</b> para ver todos.</div>`
+      : (todos.length ? `<div class="alerta-ok">✅ Nenhum pedido com o prazo de entrega vencido${filtroAtivo?' no filtro selecionado':' no momento'}.</div>` : ''));
 
   const avisoHoje = hojeVence.length ? `<div class="alerta-aviso">⚠️ <b>${hojeVence.length} pedido(s) vencem HOJE</b> — ${hojeVence.slice(0,4).map(p=>esc(p.numero)+' ('+esc(p.fornecedor)+')').join(', ')}${hojeVence.length>4?'…':''}.</div>` : '';
   const avisoSemPrazo = semPrazoCad.length ? `<div class="alerta-aviso">❔ <b>${semPrazoCad.length} pedido(s) sem prazo de entrega definido</b> — sem o prazo em dias o sistema não consegue avisar do atraso. Cadastre o prazo em <b>Cadastros → Fornecedores</b> ou direto no pedido.</div>` : '';
@@ -4594,17 +4613,37 @@ function viewConferenciaPedidos(){
     ${alerta}${avisoHoje}${avisoSemPrazo}
     <div class="card">
       <h2>📥 Conferência de Pedidos — Recebimento dos itens vencidos</h2>
-      <div class="subtitle">Cada cotação fechada gera um pedido para cada fornecedor vencedor. Aqui você confere, item a item, se o fornecedor entregou tudo o que venceu — e o sistema avisa quando o prazo de entrega estoura.</div>
+      <div class="subtitle">Cada cotação fechada gera um pedido para cada fornecedor vencedor. Aqui você confere, item a item, se o fornecedor entregou tudo o que venceu — e o sistema avisa quando o prazo de entrega estoura.${filtroAtivo?` <b>Filtro aplicado:</b> ${esc(nomeFiltroFornecedor(filtroConferencia, op))} · ${esc(nomeFiltroCotacao(filtroConferencia, op))}.`:''}</div>
       <div class="grid cols-4" style="margin-bottom:6px;">
-        <div class="stat"><div class="label">Pedidos gerados</div><div class="value">${todos.length}</div><div class="hint">a partir das cotações fechadas</div></div>
-        <div class="stat"><div class="label">Entregues por completo</div><div class="value" style="color:var(--green);">${completos.length}</div><div class="hint">${todos.length?fmtPct(completos.length/todos.length*100):'0,0%'} do total</div></div>
-        <div class="stat"><div class="label">Pedidos atrasados</div><div class="value" style="color:${atras.length?'var(--red)':'var(--teal-dark)'};">${atras.length}</div><div class="hint">prazo de entrega já vencido</div></div>
+        <div class="stat"><div class="label">Pedidos ${filtroAtivo?'no filtro':'gerados'}</div><div class="value">${todos.length}${filtroAtivo?` <span class="muted" style="font-size:13px;font-weight:600;">de ${geral.length}</span>`:''}</div><div class="hint">${filtroAtivo?'dentro do fornecedor/cotação escolhidos':'a partir das cotações fechadas'}</div></div>
+        <div class="stat"><div class="label">Entregues por completo</div><div class="value" style="color:var(--green);">${completos.length}</div><div class="hint">${todos.length?fmtPct(completos.length/todos.length*100):'0,0%'} ${filtroAtivo?'do filtro':'do total'}</div></div>
+        <div class="stat"><div class="label">Pedidos atrasados</div><div class="value" style="color:${atras.length?'var(--red)':'var(--teal-dark)'};">${atras.length}</div><div class="hint">prazo de entrega já vencido${atrasForaFiltro>0?` · +${atrasForaFiltro} fora do filtro`:''}</div></div>
         <div class="stat"><div class="label">Itens pendentes</div><div class="value" style="color:${itensPend?'var(--amber)':'var(--teal-dark)'};">${itensPend}</div><div class="hint">${fmtMoney(valorPend)} ainda não entregues</div></div>
       </div>
     </div>
 
     <div class="card">
+      <div class="flexrow" style="margin-bottom:10px;">
+        <h2 style="margin:0;">🔎 Filtrar pedidos</h2>
+        ${(filtroConferencia.termo||filtroConferencia.status||filtroAtivo)
+          ? `<button class="btn-limpar-filtros" onclick="limparFiltroConferencia()">✕ voltar ao geral</button>`
+          : `<span class="muted" style="font-size:11.5px;">Mostrando o <b>geral</b>: todos os fornecedores e todas as cotações.</span>`}
+      </div>
       <div class="dash-filtros" style="margin-bottom:12px;">
+        <div class="dash-filtro">
+          <div class="filtro-label">Fornecedor</div>
+          <select onchange="setFiltroConferencia('fid', this.value)">
+            <option value="" ${filtroConferencia.fid===''?'selected':''}>🏢 Todos os fornecedores (geral)</option>
+            ${op.fornecedores.map(x=>`<option value="${x.id}" ${filtroConferencia.fid===x.id?'selected':''}>${esc(x.nome)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="dash-filtro">
+          <div class="filtro-label">Cotação</div>
+          <select onchange="setFiltroConferencia('cotacaoId', this.value)">
+            <option value="" ${filtroConferencia.cotacaoId===''?'selected':''}>📚 Todas as cotações (geral)</option>
+            ${op.cotacoes.map(x=>`<option value="${x.id}" ${filtroConferencia.cotacaoId===x.id?'selected':''}>Cotação ${esc(x.numero)}${x.destino?' — '+esc(x.destino):''}${x.dataFechamento?' (fechada em '+fmtDateBR(x.dataFechamento)+')':''}</option>`).join('')}
+          </select>
+        </div>
         <div class="dash-filtro" style="flex:2;">
           <div class="filtro-label">Buscar</div>
           <input value="${esc(filtroConferencia.termo)}" oninput="setFiltroConferencia('termo', this.value)" placeholder="Nº da cotação, fornecedor, destino ou nome do produto..." style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:12.5px;font-family:inherit;">
@@ -4622,11 +4661,12 @@ function viewConferenciaPedidos(){
             <option value="COMPLETO" ${filtroConferencia.status==='COMPLETO'?'selected':''}>✅ Entregues por completo</option>
           </select>
         </div>
-        ${(filtroConferencia.termo||filtroConferencia.status)?`<div class="dash-filtro" style="flex:0 0 auto;display:flex;align-items:flex-end;"><button class="btn-limpar-filtros" onclick="filtroConferencia={termo:'',status:''};render();">✕ limpar filtros</button></div>`:''}
       </div>
+      ${filtroAtivo?`<div class="helpbox" style="margin:0 0 12px;">🔎 Filtro aplicado: <b>${esc(nomeFiltroFornecedor(filtroConferencia, op))}</b> · <b>${esc(nomeFiltroCotacao(filtroConferencia, op))}</b>. Os totais acima e a lista abaixo consideram <b>apenas</b> o que foi selecionado.</div>`:''}
 
-      ${todos.length===0 ? `<div class="helpbox">Nenhum pedido a conferir ainda. Os pedidos aparecem aqui automaticamente assim que uma cotação é <b>fechada</b> e algum fornecedor sai vencedor de pelo menos um item.</div>`
-        : lista.length===0 ? `<div class="helpbox">Nenhum pedido encontrado para este filtro.</div>`
+      ${geral.length>0 ? `<div class="flexrow" style="margin-bottom:10px;"><b style="font-size:12.5px;color:var(--teal-dark);">Mostrando ${lista.length} pedido(s)${lista.length!==geral.length?' de '+geral.length+' no total':''}</b><span class="muted" style="font-size:11.5px;">Clique em um pedido para conferir os itens e dar baixa no recebimento.</span></div>`:''}
+      ${geral.length===0 ? `<div class="helpbox">Nenhum pedido a conferir ainda. Os pedidos aparecem aqui automaticamente assim que uma cotação é <b>fechada</b> e algum fornecedor sai vencedor de pelo menos um item.</div>`
+        : lista.length===0 ? `<div class="helpbox">Nenhum pedido encontrado para este filtro. Use <b>✕ voltar ao geral</b> acima para ver todos os pedidos de novo.</div>`
         : lista.map(p=>{
             const si = statusPedidoInfo(p.status);
             const pct = Math.min(100, p.pctAtendido);
@@ -4803,9 +4843,91 @@ function viewPedidoDetalhe(p){
 
 /* ============================================================
    RELATÓRIOS DO MÓDULO 3 — ENTREGAS E PENDÊNCIAS
+   ------------------------------------------------------------
+   Os dois relatórios começam sempre no GERAL (todos os fornecedores e todas as
+   cotações) e o usuário pode ir afunilando por fornecedor e/ou por cotação.
+   O filtro escolhido aparece também no cabeçalho impresso, para o papel não
+   sair sem dizer a que ele se refere.
    ============================================================ */
-function agregadosEntregas(){
-  const pedidos = listaPedidos();
+let filtroRelEntregas   = { fid:'', cotacaoId:'' };
+let filtroRelPendencias = { fid:'', cotacaoId:'' };
+function setFiltroRelEntregas(campo, valor){ filtroRelEntregas[campo] = valor; render(); }
+function setFiltroRelPendencias(campo, valor){ filtroRelPendencias[campo] = valor; render(); }
+function limparFiltroRelEntregas(){ filtroRelEntregas = { fid:'', cotacaoId:'' }; render(); }
+function limparFiltroRelPendencias(){ filtroRelPendencias = { fid:'', cotacaoId:'' }; render(); }
+
+/* Só entram nas listas de escolha os fornecedores e as cotações que realmente
+   geraram pedido — assim o usuário nunca escolhe uma opção que traz tela vazia. */
+function opcoesFiltroPedidos(todos){
+  const forn = {}, cot = {};
+  todos.forEach(p=>{
+    forn[p.fid] = p.fornecedor;
+    cot[p.cotacaoId] = { numero:p.numero, destino:p.destino, dataFechamento:p.dataFechamento };
+  });
+  return {
+    fornecedores: Object.keys(forn).map(k=>({ id:k, nome:forn[k] }))
+      .sort((a,b)=> normTxt(a.nome).localeCompare(normTxt(b.nome))),
+    cotacoes: Object.keys(cot).map(k=>({ id:k, numero:cot[k].numero, destino:cot[k].destino, dataFechamento:cot[k].dataFechamento }))
+      .sort((a,b)=> (b.dataFechamento||'').localeCompare(a.dataFechamento||'') || normTxt(a.numero).localeCompare(normTxt(b.numero)))
+  };
+}
+function aplicarFiltroPedidos(todos, f){
+  let l = todos;
+  if(f.fid) l = l.filter(p=>p.fid===f.fid);
+  if(f.cotacaoId) l = l.filter(p=>p.cotacaoId===f.cotacaoId);
+  return l;
+}
+function nomeFiltroFornecedor(f, op){
+  if(!f.fid) return 'Todos os fornecedores';
+  const x = op.fornecedores.find(y=>y.id===f.fid);
+  return x ? x.nome : 'Todos os fornecedores';
+}
+function nomeFiltroCotacao(f, op){
+  if(!f.cotacaoId) return 'Todas as cotações';
+  const x = op.cotacoes.find(y=>y.id===f.cotacaoId);
+  return x ? ('Cotação '+x.numero) : 'Todas as cotações';
+}
+/* Card de filtros (só tela — não sai na impressão). */
+function filtroPedidosHTML(f, op, setter, limpar){
+  const ativo = !!(f.fid || f.cotacaoId);
+  return `
+    <div class="card no-print">
+      <div class="flexrow" style="margin-bottom:10px;">
+        <h2 style="margin:0;">🔎 Filtrar relatório</h2>
+        ${ativo?`<button class="btn-limpar-filtros" onclick="${limpar}()">✕ voltar ao geral</button>`:`<span class="muted" style="font-size:11.5px;">Mostrando o <b>geral</b>: todos os fornecedores e todas as cotações.</span>`}
+      </div>
+      <div class="dash-filtros">
+        <div class="dash-filtro">
+          <div class="filtro-label">Fornecedor</div>
+          <select onchange="${setter}('fid', this.value)">
+            <option value="" ${f.fid===''?'selected':''}>🏢 Todos os fornecedores (geral)</option>
+            ${op.fornecedores.map(x=>`<option value="${x.id}" ${f.fid===x.id?'selected':''}>${esc(x.nome)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="dash-filtro">
+          <div class="filtro-label">Cotação</div>
+          <select onchange="${setter}('cotacaoId', this.value)">
+            <option value="" ${f.cotacaoId===''?'selected':''}>📚 Todas as cotações (geral)</option>
+            ${op.cotacoes.map(x=>`<option value="${x.id}" ${f.cotacaoId===x.id?'selected':''}>Cotação ${esc(x.numero)}${x.destino?' — '+esc(x.destino):''}${x.dataFechamento?' (fechada em '+fmtDateBR(x.dataFechamento)+')':''}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      ${ativo?`<div class="helpbox" style="margin:12px 0 0;">🔎 Filtro aplicado: <b>${esc(nomeFiltroFornecedor(f, op))}</b> · <b>${esc(nomeFiltroCotacao(f, op))}</b>. Os totais, os gráficos de situação e a impressão abaixo consideram <b>apenas</b> o que foi selecionado.</div>`:''}
+    </div>`;
+}
+/* Faixa que identifica o filtro dentro da área impressa do relatório. */
+function faixaFiltroRelatorioHTML(f, op, qtdFiltrada, qtdTotal, rotuloQtd){
+  return `
+    <div class="conf-kv" style="margin-bottom:16px;">
+      <div><span class="k">Fornecedor</span><b class="v">${esc(nomeFiltroFornecedor(f, op))}</b></div>
+      <div><span class="k">Cotação</span><b class="v">${esc(nomeFiltroCotacao(f, op))}</b></div>
+      <div><span class="k">${esc(rotuloQtd||'Pedidos no relatório')}</span><b class="v">${fmtNum(qtdFiltrada)}${qtdFiltrada!==qtdTotal?' <span class="muted" style="font-size:11px;font-weight:600;">de '+fmtNum(qtdTotal)+'</span>':''}</b></div>
+      <div><span class="k">Emitido em</span><b class="v">${new Date().toLocaleDateString('pt-BR')}</b></div>
+    </div>`;
+}
+
+function agregadosEntregas(listaBase){
+  const pedidos = Array.isArray(listaBase) ? listaBase : listaPedidos();
   const porForn = {};   // fid -> consolidado do fornecedor
   pedidos.forEach(p=>{
     if(!porForn[p.fid]) porForn[p.fid] = {
@@ -4840,7 +4962,16 @@ function agregadosEntregas(){
 }
 
 function viewRelEntregas(){
-  const { pedidos, fornecedores } = agregadosEntregas();
+  const todos = listaPedidos();
+  const op = opcoesFiltroPedidos(todos);
+  // Se o fornecedor/cotação escolhido sumiu (cotação reaberta, por exemplo),
+  // o relatório volta sozinho para o geral em vez de mostrar tela vazia.
+  if(filtroRelEntregas.fid && !op.fornecedores.some(x=>x.id===filtroRelEntregas.fid)) filtroRelEntregas.fid = '';
+  if(filtroRelEntregas.cotacaoId && !op.cotacoes.some(x=>x.id===filtroRelEntregas.cotacaoId)) filtroRelEntregas.cotacaoId = '';
+  const filtrados = aplicarFiltroPedidos(todos, filtroRelEntregas);
+  const filtroAtivo = !!(filtroRelEntregas.fid || filtroRelEntregas.cotacaoId);
+
+  const { pedidos, fornecedores } = agregadosEntregas(filtrados);
   const atras = pedidos.filter(p=>p.status==='ATRASADO');
   const completos = pedidos.filter(p=>p.status==='COMPLETO');
   const qtdPedida = pedidos.reduce((s,p)=>s+p.totalPedida,0);
@@ -4852,7 +4983,8 @@ function viewRelEntregas(){
   const pontuais = avaliados.filter(p=>p.pontual===true).length;
 
   return `
-    ${atras.length?`<div class="alerta-atraso"><b>⛔ ${atras.length} pedido(s) com o prazo de entrega vencido</b> — ${fmtMoney(atras.reduce((s,p)=>s+p.valorPendente,0))} em itens não entregues. Veja o detalhe em <b>3. Conferência de Pedidos</b>.</div>`:''}
+    ${atras.length?`<div class="alerta-atraso"><b>⛔ ${atras.length} pedido(s) com o prazo de entrega vencido</b>${filtroAtivo?' <span class="muted">(dentro do filtro aplicado)</span>':''} — ${fmtMoney(atras.reduce((s,p)=>s+p.valorPendente,0))} em itens não entregues. Veja o detalhe em <b>3. Conferência de Pedidos</b>.</div>`:''}
+    ${todos.length?filtroPedidosHTML(filtroRelEntregas, op, 'setFiltroRelEntregas', 'limparFiltroRelEntregas'):''}
     <div class="card">
       <div class="flexrow" style="margin-bottom:8px;">
         <h2 style="margin:0;">📥 Relatório de Entregas e Prazos por Fornecedor</h2>
@@ -4860,7 +4992,9 @@ function viewRelEntregas(){
       </div>
       <div class="subtitle">Consolidado do módulo "3. Conferência de Pedidos": o quanto cada fornecedor realmente entregou do que venceu nas cotações e se cumpriu o prazo acordado.</div>
       <div id="relEntregasPrint">
-        ${reportHeaderHTML({numero:'—', solicitante:'—', destino:'Todos', data:new Date().toLocaleDateString('pt-BR'), rotulo:'Relatório de Entregas'})}
+        ${reportHeaderHTML({numero: filtroRelEntregas.cotacaoId ? (op.cotacoes.find(x=>x.id===filtroRelEntregas.cotacaoId)||{}).numero : 'Todas', solicitante:'—', destino: filtroRelEntregas.cotacaoId ? ((op.cotacoes.find(x=>x.id===filtroRelEntregas.cotacaoId)||{}).destino || '—') : 'Todos', data:new Date().toLocaleDateString('pt-BR'), rotulo:'Relatório de Entregas — Cotação'})}
+        ${faixaFiltroRelatorioHTML(filtroRelEntregas, op, pedidos.length, todos.length, 'Pedidos no relatório')}
+        ${(filtroAtivo && pedidos.length===0)?`<div class="alerta-aviso">Nenhum pedido encontrado para este filtro. Use <b>✕ voltar ao geral</b> acima para ver tudo de novo.</div>`:''}
         <div class="grid cols-4" style="margin-bottom:16px;">
           <div class="stat"><div class="label">Pedidos gerados</div><div class="value">${pedidos.length}</div><div class="hint">${fmtMoney(valorPedido)} pedidos ao todo</div></div>
           <div class="stat"><div class="label">Entregues por completo</div><div class="value" style="color:var(--green);">${completos.length}</div><div class="hint">${pedidos.length?fmtPct(completos.length/pedidos.length*100):'0,0%'} dos pedidos</div></div>
@@ -4877,7 +5011,7 @@ function viewRelEntregas(){
               <th class="right">Itens pendentes</th><th class="right">Valor pendente</th><th class="right">Pontualidade</th><th class="right">Prazo médio real</th>
             </tr></thead>
             <tbody>
-              ${fornecedores.length===0?`<tr class="empty-row"><td colspan="11">Nenhum pedido gerado ainda. Feche uma cotação para o controle de entregas começar.</td></tr>`:
+              ${fornecedores.length===0?`<tr class="empty-row"><td colspan="11">${filtroAtivo?'Nenhum pedido para o filtro selecionado.':'Nenhum pedido gerado ainda. Feche uma cotação para o controle de entregas começar.'}</td></tr>`:
                 fornecedores.map(a=>`
                 <tr>
                   <td><b>${esc(a.nome)}</b></td>
@@ -4912,13 +5046,19 @@ function viewRelEntregas(){
     </div>
 
     <div class="card">
-      <h2>📋 Situação pedido a pedido</h2>
-      <div class="subtitle">Cada cotação fechada gera um pedido por fornecedor vencedor.</div>
+      <div class="flexrow" style="margin-bottom:8px;">
+        <h2 style="margin:0;">📋 Situação pedido a pedido</h2>
+        <button class="btn ghost small" onclick="printReportAsk('relEntregasPedidosPrint','Situação Pedido a Pedido')">🖨️ Imprimir</button>
+      </div>
+      <div class="subtitle">Cada cotação fechada gera um pedido por fornecedor vencedor.${filtroAtivo?' <b>Filtro aplicado:</b> '+esc(nomeFiltroFornecedor(filtroRelEntregas, op))+' · '+esc(nomeFiltroCotacao(filtroRelEntregas, op))+'.':''}</div>
+      <div id="relEntregasPedidosPrint">
+      ${reportHeaderHTML({numero: filtroRelEntregas.cotacaoId ? (op.cotacoes.find(x=>x.id===filtroRelEntregas.cotacaoId)||{}).numero : 'Todas', solicitante:'—', destino: filtroRelEntregas.cotacaoId ? ((op.cotacoes.find(x=>x.id===filtroRelEntregas.cotacaoId)||{}).destino || '—') : 'Todos', data:new Date().toLocaleDateString('pt-BR'), rotulo:'Situação Pedido a Pedido — Cotação'})}
+      ${faixaFiltroRelatorioHTML(filtroRelEntregas, op, pedidos.length, todos.length, 'Pedidos no relatório')}
       <div class="table-wrap">
         <table>
           <thead><tr><th>Cotação</th><th>Fornecedor</th><th>Destino/Setor</th><th>Envio</th><th>Prazo</th><th>Prazo final</th><th>Situação</th><th class="right">% atendido (R$)</th><th class="right">Pendente</th></tr></thead>
           <tbody>
-            ${pedidos.length===0?`<tr class="empty-row"><td colspan="9">Sem pedidos ainda.</td></tr>`:
+            ${pedidos.length===0?`<tr class="empty-row"><td colspan="9">${filtroAtivo?'Nenhum pedido para o filtro selecionado.':'Sem pedidos ainda.'}</td></tr>`:
               pedidos.map(p=>{
                 const si = statusPedidoInfo(p.status);
                 return `<tr>
@@ -4936,12 +5076,20 @@ function viewRelEntregas(){
           </tbody>
         </table>
       </div>
+      </div>
     </div>
   `;
 }
 
 function viewRelPendencias(){
-  const pedidos = listaPedidos();
+  const todosPedidos = listaPedidos();
+  const op = opcoesFiltroPedidos(todosPedidos);
+  if(filtroRelPendencias.fid && !op.fornecedores.some(x=>x.id===filtroRelPendencias.fid)) filtroRelPendencias.fid = '';
+  if(filtroRelPendencias.cotacaoId && !op.cotacoes.some(x=>x.id===filtroRelPendencias.cotacaoId)) filtroRelPendencias.cotacaoId = '';
+  const filtroAtivo = !!(filtroRelPendencias.fid || filtroRelPendencias.cotacaoId);
+  const pedidos = aplicarFiltroPedidos(todosPedidos, filtroRelPendencias);
+  // Quantas pendências existem no geral — serve de referência no cabeçalho.
+  const totalPendGeral = todosPedidos.reduce((s,p)=>s+p.itensPendentes,0);
   const pend = [];
   pedidos.forEach(p=>{
     p.linhas.filter(l=>l.pendente>0).forEach(l=>{
@@ -4974,8 +5122,9 @@ function viewRelPendencias(){
   const produtos = Object.keys(porProduto).map(k=>porProduto[k]).sort((a,b)=> b.valor-a.valor || b.qtd-a.qtd);
 
   return `
-    ${atrasados.length?`<div class="alerta-atraso"><b>⛔ ${atrasados.length} item(ns) estão com o prazo de entrega vencido</b>, somando <b>${fmtMoney(valorAtrasado)}</b> que os fornecedores ainda devem entregar.</div>`
-      :(pend.length?`<div class="alerta-ok">✅ Há pendências em aberto, mas nenhuma com o prazo vencido.</div>`:`<div class="alerta-ok">✅ Nenhuma pendência de entrega: todos os pedidos foram recebidos por completo.</div>`)}
+    ${atrasados.length?`<div class="alerta-atraso"><b>⛔ ${atrasados.length} item(ns) estão com o prazo de entrega vencido</b>${filtroAtivo?' <span class="muted">(dentro do filtro aplicado)</span>':''}, somando <b>${fmtMoney(valorAtrasado)}</b> que os fornecedores ainda devem entregar.</div>`
+      :(pend.length?`<div class="alerta-ok">✅ Há pendências em aberto, mas nenhuma com o prazo vencido${filtroAtivo?' dentro do filtro aplicado':''}.</div>`:`<div class="alerta-ok">✅ Nenhuma pendência de entrega${filtroAtivo?' para o filtro selecionado':''}: tudo foi recebido por completo.</div>`)}
+    ${todosPedidos.length?filtroPedidosHTML(filtroRelPendencias, op, 'setFiltroRelPendencias', 'limparFiltroRelPendencias'):''}
     <div class="card">
       <div class="flexrow" style="margin-bottom:8px;">
         <h2 style="margin:0;">⏳ Relatório de Itens Pendentes de Entrega</h2>
@@ -4983,7 +5132,8 @@ function viewRelPendencias(){
       </div>
       <div class="subtitle">Tudo o que foi pedido nas cotações fechadas e ainda não chegou — serve como lista de cobrança dos fornecedores.</div>
       <div id="relPendPrint">
-        ${reportHeaderHTML({numero:'—', solicitante:'—', destino:'Todos', data:new Date().toLocaleDateString('pt-BR'), rotulo:'Itens Pendentes'})}
+        ${reportHeaderHTML({numero: filtroRelPendencias.cotacaoId ? (op.cotacoes.find(x=>x.id===filtroRelPendencias.cotacaoId)||{}).numero : 'Todas', solicitante:'—', destino: filtroRelPendencias.cotacaoId ? ((op.cotacoes.find(x=>x.id===filtroRelPendencias.cotacaoId)||{}).destino || '—') : 'Todos', data:new Date().toLocaleDateString('pt-BR'), rotulo:'Itens Pendentes — Cotação'})}
+        ${faixaFiltroRelatorioHTML(filtroRelPendencias, op, pend.length, totalPendGeral, 'Itens pendentes no relatório')}
         <div class="grid cols-4" style="margin-bottom:16px;">
           <div class="stat"><div class="label">Itens pendentes</div><div class="value" style="color:${pend.length?'var(--amber)':'var(--green)'};">${pend.length}</div><div class="hint">em ${new Set(pend.map(x=>x.numero)).size} cotação(ões)</div></div>
           <div class="stat"><div class="label">Valor pendente</div><div class="value">${fmtMoney(valorTotal)}</div><div class="hint">total ainda não entregue</div></div>
@@ -4999,7 +5149,7 @@ function viewRelPendencias(){
               <th class="right">Valor pendente</th><th>Prazo final</th><th>Situação</th>
             </tr></thead>
             <tbody>
-              ${pend.length===0?`<tr class="empty-row"><td colspan="10">Nenhuma pendência de entrega. 🎉</td></tr>`:
+              ${pend.length===0?`<tr class="empty-row"><td colspan="10">${filtroAtivo?'Nenhuma pendência de entrega para o filtro selecionado. 🎉':'Nenhuma pendência de entrega. 🎉'}</td></tr>`:
                 pend.map(x=>{
                   const si = statusPedidoInfo(x.status);
                   let sit = si.label;
@@ -5027,13 +5177,19 @@ function viewRelPendencias(){
     </div>
 
     <div class="card">
-      <h2>📦 Pendências agrupadas por produto</h2>
-      <div class="subtitle">Útil para a farmácia/almoxarifado: quanto ainda falta chegar de cada produto, somando todas as cotações.</div>
+      <div class="flexrow" style="margin-bottom:8px;">
+        <h2 style="margin:0;">📦 Pendências agrupadas por produto</h2>
+        <button class="btn ghost small" onclick="printReportAsk('relPendProdutoPrint','Pendências Agrupadas por Produto')">🖨️ Imprimir</button>
+      </div>
+      <div class="subtitle">Útil para a farmácia/almoxarifado: quanto ainda falta chegar de cada produto, somando ${filtroAtivo?'o que está dentro do filtro aplicado':'todas as cotações'}.</div>
+      <div id="relPendProdutoPrint">
+      ${reportHeaderHTML({numero: filtroRelPendencias.cotacaoId ? (op.cotacoes.find(x=>x.id===filtroRelPendencias.cotacaoId)||{}).numero : 'Todas', solicitante:'—', destino: filtroRelPendencias.cotacaoId ? ((op.cotacoes.find(x=>x.id===filtroRelPendencias.cotacaoId)||{}).destino || '—') : 'Todos', data:new Date().toLocaleDateString('pt-BR'), rotulo:'Pendências por Produto — Cotação'})}
+      ${faixaFiltroRelatorioHTML(filtroRelPendencias, op, produtos.length, produtos.length, 'Produtos pendentes')}
       <div class="table-wrap">
         <table>
           <thead><tr><th>Produto</th><th>Unid.</th><th class="right">Qtd. faltando</th><th class="right">Valor pendente</th><th class="right">Pendências</th><th>Fornecedor(es)</th></tr></thead>
           <tbody>
-            ${produtos.length===0?`<tr class="empty-row"><td colspan="6">Nenhum produto pendente.</td></tr>`:
+            ${produtos.length===0?`<tr class="empty-row"><td colspan="6">${filtroAtivo?'Nenhum produto pendente para o filtro selecionado.':'Nenhum produto pendente.'}</td></tr>`:
               produtos.map(pr=>`<tr>
                 <td style="white-space:normal;min-width:220px;"><b>${esc(pr.descricao)}</b></td>
                 <td>${esc(pr.unidade)||'—'}</td>
@@ -5043,7 +5199,9 @@ function viewRelPendencias(){
                 <td style="white-space:normal;">${esc(Array.from(pr.fornecedores).join(', '))}</td>
               </tr>`).join('')}
           </tbody>
+          <tfoot><tr><td colspan="2">TOTAL</td><td class="right">${fmtNum(produtos.reduce((s,pr)=>s+pr.qtd,0))}</td><td class="right">${fmtMoney(produtos.reduce((s,pr)=>s+pr.valor,0))}</td><td colspan="2"></td></tr></tfoot>
         </table>
+      </div>
       </div>
     </div>
   `;
