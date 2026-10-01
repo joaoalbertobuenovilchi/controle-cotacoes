@@ -277,6 +277,20 @@ tfoot td{padding:8px 10px;font-weight:700;background:#F2F7F7;border-top:2px soli
 .read-only-notice{background:#fff8e1;border:1px solid #f0e0a0;border-radius:9px;padding:10px 14px;font-size:12.5px;color:#7a6a1f;margin-bottom:14px;}
 .right{text-align:right;}
 
+/* ── Integração Fiorilli (SIS) ── */
+.fio-ref{font-size:11px;color:var(--ink-soft);font-weight:500;margin-top:3px;line-height:1.35;}
+.fio-alerta{font-size:10.5px;font-weight:700;margin-top:2px;white-space:nowrap;}
+.fio-alerta.alta{color:var(--red);}
+.fio-alerta.baixa{color:var(--green);}
+.fio-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;}
+.fio-acoes{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0;}
+.fio-acoes select{padding:6px 8px;border:1px solid var(--line);border-radius:7px;font-size:12px;font-family:inherit;max-width:280px;}
+.fio-passos{margin:0 0 10px;padding-left:20px;line-height:1.7;font-size:12.5px;}
+.fio-colar{font-family:Consolas,monospace !important;font-size:12px !important;min-height:150px !important;}
+.fio-vinc-ok{color:var(--green);font-weight:700;}
+.fio-vinc-aviso{color:#8a5a1c;font-weight:700;}
+.fio-vinc-nao{color:var(--ink-soft);}
+
 /* ── Dashboard melhorado ── */
 .dash-filtros{display:flex;gap:16px;flex-wrap:wrap;}
 .dash-filtro{flex:1;min-width:170px;}
@@ -1031,13 +1045,17 @@ function trocarCodigoAcesso(){
 /* ============================================================
    VERSÃO DO APLICATIVO
    Regra: ao publicar qualquer alteração no sistema, atualize APP_DATA para a
-   data da alteração e some 1 a APP_ALTERACAO (reinicie para 1 sempre que
-   mudar de mês/ano em relação à última alteração). O número exibido é
-   "<mês desde a criação>.<alterações no mês>.<ano>".
+   data da alteração e some 1 a APP_ALTERACAO (o contador é acumulado, não
+   recomeça quando muda o mês — mesmo formato do Controle de Exames). O número
+   exibido é "<mês desde a criação>.<nº acumulado de alterações>.<ano>".
+   2.09.2026 (01/10/2026): módulo 5. Integração Fiorilli (SIS).
+   2.10.2026 (01/10/2026): Lançamentos no SIS — folhas do pedido e da requisição de
+   entrada, lote/validade na conferência, leitura do XML da NF-e e pedido do XML
+   no e-mail ao fornecedor.
    ============================================================ */
 const APP_CRIACAO = { mes: 9, ano: 2026 };
-const APP_ALTERACAO = 8;
-const APP_DATA = '2026-09-23';
+const APP_ALTERACAO = 10;
+const APP_DATA = '2026-10-01';
 function appVersao(){
   const p = APP_DATA.split('-').map(Number);
   const ano = p[0], mes = p[1];
@@ -1144,6 +1162,15 @@ function garantirModulosNovos(){
   if(!Array.isArray(STATE.cotacoes)) STATE.cotacoes = [];
   if(!STATE.proximoNumero) STATE.proximoNumero = 1;
   if(!STATE.config || typeof STATE.config!=='object') STATE.config = { prefixoNumero:'', usarAnoNoNumero:true };
+  // Lançamentos no SIS (Fiorilli): folhas de pedido/entrada e pedido do XML da NF-e.
+  // Só cria o que falta — configurações já gravadas nunca são trocadas.
+  if(!STATE.config.sis || typeof STATE.config.sis!=='object') STATE.config.sis = {};
+  const cfgSis = STATE.config.sis;
+  if(cfgSis.ativo===undefined) cfgSis.ativo = true;
+  if(cfgSis.tipoEntradaCodigo===undefined) cfgSis.tipoEntradaCodigo = '4';
+  if(cfgSis.tipoEntradaNome===undefined) cfgSis.tipoEntradaNome = 'COMPRA DE FORNECEDOR';
+  if(cfgSis.exigirXml===undefined) cfgSis.exigirXml = true;
+  if(cfgSis.emailXml===undefined) cfgSis.emailXml = '';
   STATE.fornecedores.forEach(f=>{
     if(f.ativo===undefined) f.ativo = true;
     // Prazo de entrega (em dias) — usado pelo módulo "3. Conferência de Pedidos"
@@ -1445,6 +1472,7 @@ function viewFornecedores(){
         <div class="field"><label>E-mail</label><input id="forEmail" type="email" value="${editing?esc(editing.email||''):''}" placeholder="contato@fornecedor.com"></div>
         <div class="field"><label>CNPJ/CPF</label><input id="forCnpj" value="${editing?esc(editing.cnpj||''):''}" placeholder="00.000.000/0000-00"></div>
         <div class="field"><label>Prazo de entrega (dias)</label><input id="forPrazo" type="number" min="0" step="1" value="${editing && Number(editing.prazoEntregaDias)>0 ? Number(editing.prazoEntregaDias) : ''}" placeholder="Ex: 15"></div>
+        <div class="field"><label>Código no SIS (Fiorilli)</label><input id="forCodigoSIS" value="${editing?esc(editing.codigoSIS||''):''}" placeholder="Ex: 57"></div>
       </div>
       <div class="helpbox" style="margin-top:10px;margin-bottom:0;">
         ⏱️ <b>Prazo de entrega (dias):</b> quantos dias corridos o fornecedor tem para entregar os itens
@@ -1485,7 +1513,7 @@ function viewFornecedores(){
             ${lista.length===0 ? `<tr class="empty-row"><td colspan="8">Nenhum fornecedor cadastrado.</td></tr>` :
               lista.map(f=>`
               <tr>
-                <td><b>${esc(f.nome)}</b></td>
+                <td><b>${esc(f.nome)}</b>${f.codigoSIS?`<div class="fio-ref">SIS: cód. ${esc(f.codigoSIS)}</div>`:''}</td>
                 <td>${esc(f.contato)||'—'}</td>
                 <td>${esc(f.telefone)||'—'}</td>
                 <td>${esc(f.email)||'—'}</td>
@@ -1523,6 +1551,8 @@ function saveFornecedor(){
     categorias: forSelecionadasCategorias.slice(),
     prazoEntregaDias: Math.max(0, Math.round(Number(document.getElementById('forPrazo').value)||0)),
   };
+  const elCodSis = document.getElementById('forCodigoSIS');
+  if(elCodSis) dados.codigoSIS = elCodSis.value.trim();
   if(editingFornecedorId){
     const f = STATE.fornecedores.find(x=>x.id===editingFornecedorId);
     if(f) Object.assign(f, dados);
@@ -1657,6 +1687,7 @@ function viewProdutos(){
   if(fCategoria) lista = lista.filter(p=> (p.categoria||'')===fCategoria);
   if(fUnidade) lista = lista.filter(p=> normTxt(p.unidade).includes(fUnidade));
   lista = lista.sort((a,b)=> normTxt(a.descricao).localeCompare(normTxt(b.descricao)));
+  const colFio = fioTemDados() || STATE.produtos.some(p=> p.codigoFiorilli);
   return `
     <div class="card edit-only">
       <h2>🏷️ Categorias de produtos</h2>
@@ -1685,6 +1716,8 @@ function viewProdutos(){
           <option value="">— Selecione —</option>
           ${categorias.map(c=>`<option value="${esc(c)}" ${editing && editing.categoria===c ?'selected':''}>${esc(c)}</option>`).join('')}
         </select></div>
+        <div class="field"><label>Código no Fiorilli (opcional)</label><input id="prodCodigoFiorilli" value="${editing?esc(editing.codigoFiorilli||''):''}" placeholder="Ex: 003.042.732"></div>
+        <div class="field"><label>Fator SIS (1 unid. daqui = ? no SIS)</label><input id="prodFatorSIS" type="number" min="0" step="any" value="${editing && Number(editing.fatorSIS)>0 ? Number(editing.fatorSIS) : ''}" placeholder="1 (mesma unidade)"></div>
       </div>
       ${categorias.length===0?`<div class="helpbox" style="margin-top:6px;">Cadastre pelo menos uma categoria acima para poder selecioná-la aqui.</div>`:''}
       <div style="margin-top:14px;display:flex;gap:8px;">
@@ -1715,14 +1748,15 @@ function viewProdutos(){
       <div id="produtosPrint">
         ${reportBrandRowHTML()}
         <div class="table-wrap"><table>
-          <thead><tr><th>Descrição</th><th>Unidade</th><th>Categoria</th><th class="no-print"></th></tr></thead>
+          <thead><tr><th>Descrição</th><th>Unidade</th><th>Categoria</th>${colFio?'<th>Fiorilli</th>':''}<th class="no-print"></th></tr></thead>
           <tbody>
-            ${lista.length===0 ? `<tr class="empty-row"><td colspan="4">Nenhum produto encontrado.</td></tr>` :
+            ${lista.length===0 ? `<tr class="empty-row"><td colspan="${colFio?5:4}">Nenhum produto encontrado.</td></tr>` :
               lista.map(p=>`
               <tr>
                 <td><b>${esc(p.descricao)}</b></td>
                 <td>${esc(p.unidade)||'—'}</td>
                 <td>${esc(p.categoria)||'—'}</td>
+                ${colFio?`<td style="white-space:normal;">${(()=>{ const info = fioInfoProdutoCatalogo(p); if(!info) return p.codigoFiorilli ? 'cód. '+esc(p.codigoFiorilli) : '<span class="muted">—</span>'; return (info.p.codigo?'cód. '+esc(info.p.codigo):'')+`<div class="fio-ref">${fioResumoItemHTML(info)}</div>`; })()}</td>`:''}
                 <td class="no-print">
                   <button class="btn ghost small edit-only" onclick="editProduto('${p.id}')">✏️ editar</button>
                   <button class="btn ghost small edit-only" onclick="deleteProduto('${p.id}')">🗑 excluir</button>
@@ -1780,6 +1814,10 @@ function saveProduto(){
     unidade: document.getElementById('prodUnidade').value.trim(),
     categoria: document.getElementById('prodCategoria').value.trim(),
   };
+  const elCodFio = document.getElementById('prodCodigoFiorilli');
+  if(elCodFio) dados.codigoFiorilli = elCodFio.value.trim();
+  const elFator = document.getElementById('prodFatorSIS');
+  if(elFator) dados.fatorSIS = Number(elFator.value)>0 ? Number(elFator.value) : 1;
   if(editingProdutoId){
     const p = STATE.produtos.find(x=>x.id===editingProdutoId);
     if(p) Object.assign(p, dados);
@@ -1836,7 +1874,11 @@ function viewDestinos(){
     <div class="card edit-only">
       <h2>${editing ? '✏️ Editar destino/setor' : '+ Novo destino/setor'}</h2>
       <div class="subtitle">Ex.: Farmácia Social/Judicial, Secretaria de Saúde, Almoxarifado Central...</div>
-      <div class="field"><label>Nome do destino/setor</label><input id="destNome" value="${editing?esc(editing.nome):''}" placeholder="Ex: FARMÁCIA SOCIAL/JUDICIAL"></div>
+      <div class="formgrid">
+        <div class="field half"><label>Nome do destino/setor</label><input id="destNome" value="${editing?esc(editing.nome):''}" placeholder="Ex: FARMÁCIA SOCIAL/JUDICIAL"></div>
+        <div class="field"><label>Unidade no SIS (código)</label><input id="destUnidadeSIS" value="${editing?esc(editing.unidadeSIS||''):''}" placeholder="Ex: 2023857001"></div>
+      </div>
+      <div class="muted" style="font-size:11.5px;margin-top:6px;">A unidade no SIS (Fiorilli) é a "Unidade de Destino" dos pedidos e a unidade onde a entrada deve ser lançada — aparece na janela "Escolha uma Unidade de Trabalho" do SIS.</div>
       <div style="margin-top:14px;display:flex;gap:8px;">
         ${editing
           ? `<button class="btn" onclick="saveDestino()">💾 Salvar alterações</button><button class="btn secondary" onclick="cancelEditDestino()">Cancelar</button>`
@@ -1846,12 +1888,13 @@ function viewDestinos(){
     <div class="card">
       <h2>Destinos/setores cadastrados (${lista.length})</h2>
       <div class="table-wrap"><table>
-        <thead><tr><th>Nome</th><th class="no-print"></th></tr></thead>
+        <thead><tr><th>Nome</th><th>Unidade no SIS</th><th class="no-print"></th></tr></thead>
         <tbody>
-          ${lista.length===0 ? `<tr class="empty-row"><td colspan="2">Nenhum destino cadastrado.</td></tr>` :
+          ${lista.length===0 ? `<tr class="empty-row"><td colspan="3">Nenhum destino cadastrado.</td></tr>` :
             lista.map(d=>`
             <tr>
               <td><b>${esc(d.nome)}</b></td>
+              <td>${esc(d.unidadeSIS)||'<span class="muted">—</span>'}</td>
               <td class="no-print">
                 <button class="btn ghost small edit-only" onclick="editDestino('${d.id}')">✏️ editar</button>
                 <button class="btn ghost small edit-only" onclick="deleteDestino('${d.id}')">🗑 excluir</button>
@@ -1866,13 +1909,15 @@ function saveDestino(){
   if(semPermissao('destinos')) return;
   const nome = document.getElementById('destNome').value.trim();
   if(!nome){ showToast('Informe o nome do destino/setor.'); return; }
+  const elUnid = document.getElementById('destUnidadeSIS');
+  const unidadeSIS = elUnid ? elUnid.value.trim() : undefined;
   if(editingDestinoId){
     const d = STATE.destinos.find(x=>x.id===editingDestinoId);
-    if(d) d.nome = nome;
+    if(d){ d.nome = nome; if(unidadeSIS!==undefined) d.unidadeSIS = unidadeSIS; }
     editingDestinoId = null;
     showToast('Destino atualizado.','success');
   } else {
-    STATE.destinos.push({ id: uid(), nome });
+    STATE.destinos.push(unidadeSIS!==undefined ? { id: uid(), nome, unidadeSIS } : { id: uid(), nome });
     showToast('Destino adicionado.','success');
   }
   saveState(true); render();
@@ -2168,6 +2213,7 @@ function preencherUnidadeDoCatalogo(){
   const desc = document.getElementById('itDescricao').value;
   const p = STATE.produtos.find(x=>normTxt(x.descricao)===normTxt(desc));
   if(p && p.unidade) document.getElementById('itUnidade').value = p.unidade;
+  fioMostrarInfoNovoItem();
 }
 function removeItemCotacao(itemId){
   const c = getCotacaoAberta(); if(!c) return;
@@ -2896,7 +2942,17 @@ function corpoEmailItensVencidos(c, nomeForn){
   return `Prezados, da ${nomeForn},\n\n`+
     `A cotação de preços nº ${c.numero}${c.destino?(' - '+c.destino):''} foi encerrada e sua empresa foi vencedora de um ou mais itens.\n`+
     `Segue solicitação de anexo da planilha com a relação dos itens vencidos, gerada e salva agora pelo sistema — por gentileza, confirmar as quantidades e os valores.\n\n`+
+    textoPedidoXmlNFe()+
     `Atenciosamente,\n${nomeSolicitante}\n${ent}${tel}`;
+}
+/* Pedido do arquivo XML da NF-e ao fornecedor (Lançamentos no SIS). O emitente da
+   NF-e é obrigado a enviar o XML ao destinatário; com ele a entrada é feita pelo
+   "Importar XML" do SIS e a conferência do pedido é feita sozinha aqui. */
+function textoPedidoXmlNFe(){
+  const s = (STATE.config && STATE.config.sis) || {};
+  if(s.ativo===false || s.exigirXml===false) return '';
+  const destino = s.emailXml ? `para o e-mail ${s.emailXml}` : 'respondendo a este e-mail';
+  return `IMPORTANTE: na entrega, enviar também o arquivo XML da Nota Fiscal Eletrônica ${destino}, com lote e validade de cada produto informados na nota. A entrada da mercadoria no nosso estoque é feita a partir desse arquivo.\n\n`;
 }
 /* Fluxo completo disparado automaticamente ao fechar uma cotação: gera a
    planilha geral (todos os fornecedores vencedores) + uma planilha
@@ -3077,7 +3133,7 @@ function matrizPrecosHTML(c){
         </tr>`;
         }
         return `<tr class="${nCotado<2?'linha-baixa-concorrencia':''}">
-          <td class="desc-col">${podeEd?`<button class="btn ghost small" style="padding:2px 6px;" onclick="editItemCotacao('${it.id}')" title="Alterar item">✏️</button><button class="btn ghost small" style="padding:2px 6px;" onclick="removeItemCotacao('${it.id}')" title="Excluir item">🗑</button> `:''}${esc(it.descricao)}</td>
+          <td class="desc-col">${podeEd?`<button class="btn ghost small" style="padding:2px 6px;" onclick="editItemCotacao('${it.id}')" title="Alterar item">✏️</button><button class="btn ghost small" style="padding:2px 6px;" onclick="removeItemCotacao('${it.id}')" title="Excluir item">🗑</button> `:''}${esc(it.descricao)}${fioRefItemHTML(it)}</td>
           <td>${esc(it.unidade)||'—'}</td>
           <td>${fmtNum(it.quantidade)}</td>
           ${participantes.map(fid=>{
@@ -3088,6 +3144,7 @@ function matrizPrecosHTML(c){
               <input type="number" min="0" step="0.01" value="${preco}" ${podeEd?'':'disabled'}
                 onchange="setPrecoItem('${it.id}','${fid}', this.value)" placeholder="0,00">
               ${preco ? `<div class="total-col" style="margin-top:3px;font-size:11px;">${fmtMoney(total)}</div>` : ''}
+              ${fioAlertaPrecoHTML(it, preco)}
             </td>`;
           }).join('')}
         </tr>`;
@@ -3116,11 +3173,20 @@ function abaCotacaoDados(c, podeEd){
 }
 function itensCotacaoListaHTML(c, podeEd){
   if(c.itens.length===0) return `<div class="helpbox">Nenhum item adicionado ainda.</div>`;
-  const ncols = podeEd ? 4 : 3;
+  const colFio = fioTemDados(); // colunas com o estoque/consumo/último preço vindos do Fiorilli
+  const ncols = (podeEd ? 4 : 3) + (colFio ? 3 : 0);
+  const celFio = (it)=>{
+    if(!colFio) return '';
+    const info = fioInfoItem(it);
+    if(!info) return `<td style="text-align:center;" class="muted">—</td><td style="text-align:center;" class="muted">—</td><td style="text-align:center;" class="muted" title="Produto não encontrado nos dados do Fiorilli">—</td>`;
+    const up = fioUltimoPreco(info);
+    return `<td style="text-align:center;">${fmtNumFio(info.p.estoque)}</td><td style="text-align:center;">${fmtNumFio(info.p.consumoMedio)}</td>`
+      + `<td style="text-align:center;">${up ? fmtMoney4(up.valor) + (up.data ? `<div class="muted" style="font-size:10.5px;">${fmtDateBR(up.data)}</div>` : '') : '—'}</td>`;
+  };
   return `
   <div class="table-wrap"><table>
     <thead><tr>
-      <th style="text-align:left;">Descrição</th><th>Unidade</th><th>Quantidade</th>${podeEd?'<th>Ações</th>':''}
+      <th style="text-align:left;">Descrição</th><th>Unidade</th><th>Quantidade</th>${colFio?'<th title="Dados importados do Fiorilli (SIS)">Estoque Fiorilli</th><th>Consumo/mês</th><th>Últ. compra</th>':''}${podeEd?'<th>Ações</th>':''}
     </tr></thead>
     <tbody>
       ${c.itens.map(it=>{
@@ -3144,6 +3210,7 @@ function itensCotacaoListaHTML(c, podeEd){
           <td>${esc(it.descricao)}</td>
           <td style="text-align:center;">${esc(it.unidade)||'—'}</td>
           <td style="text-align:center;">${fmtNum(it.quantidade)}</td>
+          ${celFio(it)}
           ${podeEd?`<td style="text-align:center;white-space:nowrap;">
             <button class="btn ghost small" style="padding:2px 6px;" onclick="editItemCotacao('${it.id}')" title="Alterar item">✏️</button>
             <button class="btn ghost small" style="padding:2px 6px;" onclick="removeItemCotacao('${it.id}')" title="Excluir item">🗑</button>
@@ -3161,11 +3228,12 @@ function abaCotacaoItensFornecedores(c, podeEd, participantesAtivos){
       <div class="formgrid">
         <div class="field half"><label>Descrição do produto</label>
           <input id="itDescricao" list="listaProdutosCatalogo" placeholder="Digite ou selecione do catálogo" onchange="preencherUnidadeDoCatalogo()">
-          <datalist id="listaProdutosCatalogo">${STATE.produtos.map(p=>`<option value="${esc(p.descricao)}">`).join('')}</datalist>
+          <datalist id="listaProdutosCatalogo">${STATE.produtos.map(p=>`<option value="${esc(p.descricao)}">`).join('')}${fioTemDados() ? (()=>{ const noCat = new Set(STATE.produtos.map(p=> normTxt(p.descricao))); return FIORILLI.produtos.filter(p=> p.descricao && !noCat.has(normTxt(p.descricao))).map(p=>`<option value="${esc(p.descricao)}" label="Fiorilli ${esc(p.codigo||'')}">`).join(''); })() : ''}</datalist>
         </div>
         <div class="field"><label>Unidade</label><input id="itUnidade" placeholder="CX, FR, UN..."></div>
         <div class="field"><label>Quantidade</label><input id="itQuantidade" type="number" min="0" step="1" placeholder="0"></div>
       </div>
+      <div id="itFioInfo" class="fio-ref" style="margin-top:6px;font-size:12px;"></div>
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn" onclick="addItemCotacao()">+ Adicionar item</button>
         <button class="btn secondary" onclick="document.getElementById('importItensFile').click()">⭱ Importar itens de planilha</button>
@@ -4506,9 +4574,14 @@ function registrarEntregaPedido(chave){
   const data = (document.getElementById('recData')?.value || '').trim() || hojeISO();
   const nota = (document.getElementById('recNota')?.value || '').trim();
   const obs  = (document.getElementById('recObs')?.value || '').trim();
+  // Lançamentos no SIS: emissão da nota, lote/validade por item e, se veio do XML, a chave da NF-e.
+  const comSis = sisAtivo();
+  const emissao = (document.getElementById('recEmissao')?.value || '').trim();
+  const xmlAplicado = (sisXmlAplicado && sisXmlAplicado.chave===chave) ? sisXmlAplicado : null;
+  const recebimentoId = uid();
 
   const novas = [];
-  let excesso = 0;
+  let excesso = 0, semLote = 0;
   itens.forEach(it=>{
     const el = document.getElementById('recQtd_'+it.id);
     if(!el) return;
@@ -4516,17 +4589,40 @@ function registrarEntregaPedido(chave){
     if(q <= 0) return;
     const pend = Math.max(0, (Number(it.quantidade)||0) - qtdRecebidaItem(rec, it.id));
     if(q > pend) excesso++;
-    novas.push({
+    const nova = {
       id: uid(), itemId: it.id, quantidade: q, data, nota, obs,
       usuario: currentUser ? (currentUser.nome||currentUser.usuario) : '',
       registradoEm: new Date().toISOString()
-    });
+    };
+    if(comSis){
+      nova.recebimentoId = recebimentoId;
+      if(emissao) nova.emissao = emissao;
+      const lote = (document.getElementById('recLote_'+it.id)?.value || '').trim();
+      const validade = (document.getElementById('recVal_'+it.id)?.value || '').trim();
+      const lotesXml = xmlAplicado && xmlAplicado.lotesPorItem[it.id];
+      if(lotesXml && lotesXml.length && lote===lotesXml.map(x=> x.lote).join(' / ')){
+        nova.lotes = lotesXml.map(x=> ({ lote:x.lote, validade:x.validade, qtd:x.qtd }));
+        nova.lote = lotesXml[0].lote; nova.validade = lotesXml[0].validade;
+      } else {
+        if(lote) nova.lote = lote;
+        if(validade) nova.validade = validade;
+      }
+      if(xmlAplicado && xmlAplicado.chaveNFe) nova.chaveNFe = xmlAplicado.chaveNFe;
+      if(!nova.lote || !nova.validade) semLote++;
+    }
+    novas.push(nova);
   });
   if(novas.length===0){ showToast('Informe a quantidade recebida de pelo menos um item.'); return; }
   if(excesso>0 && !confirm(excesso+' item(ns) estão com quantidade recebida MAIOR do que a quantidade que ainda falta. Deseja registrar mesmo assim?')) return;
+  if(semLote>0 && !confirm(semLote+' item(ns) estão sem lote ou sem validade. O Fiorilli pede lote e validade na requisição de entrada.\n\nRegistrar assim mesmo? (na folha do SIS esses campos ficam em branco para preencher à mão)')) return;
 
   rec.entregas.push.apply(rec.entregas, novas);
   saveState(true); render();
+  if(comSis){
+    const xmlItens = xmlAplicado ? xmlAplicado.xmlItens : null;
+    sisXmlConf = null; sisXmlAplicado = null;
+    if(sisAposEntrega(chave, recebimentoId, xmlItens)) return;
+  }
   const p = getPedido(chave);
   if(p && p.totalPendente===0) showToast('Entrega registrada. ✅ Pedido da cotação '+p.numero+' ('+p.fornecedor+') ENTREGUE POR COMPLETO.','success');
   else showToast('Entrega registrada: '+novas.length+' item(ns) em '+fmtDateBR(data)+'.'+(p?' Ainda faltam '+fmtNum(p.totalPendente)+' unidade(s) em '+p.itensPendentes+' item(ns).':''),'success');
@@ -4535,6 +4631,16 @@ function receberTudoPedido(chave){
   if(semPermissao('conferenciaPedidos')) return;
   const p = getPedido(chave); if(!p) return;
   if(p.totalPendente<=0){ showToast('Este pedido já foi entregue por completo.'); return; }
+  if(sisAtivo()){
+    // Com os lançamentos no SIS ativos, lote e validade são necessários: só preenche as
+    // quantidades pendentes e deixa o usuário completar e clicar em "Registrar entrega".
+    p.linhas.filter(l=> l.pendente>0).forEach(l=>{ const el = document.getElementById('recQtd_'+l.id); if(el) el.value = l.pendente; });
+    const primeira = p.linhas.find(l=> l.pendente>0);
+    const elL = primeira && document.getElementById('recLote_'+primeira.id);
+    if(elL){ elL.scrollIntoView({behavior:'smooth', block:'center'}); elL.focus(); }
+    showToast('Quantidades pendentes preenchidas. Informe lote e validade de cada item (ou leia o XML da nota) e clique em "Registrar entrega".', 'success');
+    return;
+  }
   const data = (document.getElementById('recData')?.value || '').trim() || hojeISO();
   const nota = (document.getElementById('recNota')?.value || '').trim();
   const obs  = (document.getElementById('recObs')?.value || '').trim();
@@ -4693,6 +4799,8 @@ function viewConferenciaPedidos(){
                   <div class="ped-num">Cotação ${esc(p.numero)} · ${esc(p.fornecedor)}</div>
                   <div class="ped-meta">${esc(p.destino)||'sem destino'} · fechada em ${fmtDateBR(p.dataFechamento)} · ${p.itensTotal} item(ns) vencido(s) · ${fmtMoney(p.valorPedido)}</div>
                   <div class="ped-meta">${prazoTxt}</div>
+                  ${(()=>{ if(!sisAtivo()) return ''; const s = sisLeitura(p.rec); const a = s.entradas.filter(e=> e.status!=='lancada').length; const sr = Object.keys(sisEntregasSemRequisicao(p.rec)).length;
+                    return (a||sr) ? `<div class="ped-meta" style="color:#8a5a1c;font-weight:700;">🏥 SIS: ${a?a+' requisição(ões) de entrada a lançar':''}${a&&sr?' · ':''}${sr?sr+' entrega(s) sem requisição':''}</div>` : (s.pedido.numero ? `<div class="ped-meta">🏥 Pedido no SIS nº ${esc(s.pedido.numero)}</div>` : ''); })()}
                 </div>
                 <div style="text-align:right;flex:0 0 auto;">
                   <span class="status-pill ${si.pill}">${si.ic} ${si.label}</span>
@@ -4756,6 +4864,10 @@ function viewPedidoDetalhe(p){
       </div>
     </div>
 
+    ${fioConferenciaPedidoHTML(p)}
+
+    ${sisCardPedidoHTML(p)}
+
     <div id="pedidoPrint">
       ${reportHeaderHTML({numero:p.numero, solicitante:p.solicitante, destino:p.destino, data:fmtDateBR(p.dataFechamento), status:'FECHADA', rotulo:'Conferência do Pedido — Cotação'})}
       <div class="card">
@@ -4777,21 +4889,30 @@ function viewPedidoDetalhe(p){
         <div class="helpbox">
           📥 <b>Como dar baixa:</b> digite na coluna <b>"Receber agora"</b> quanto chegou de cada item, confirme a data e o número da nota fiscal logo abaixo e clique em <b>Registrar entrega</b>.
           Pode fazer isso quantas vezes quiser — entregas parciais vão somando e o que faltar continua aparecendo como pendente.
+          ${sisAtivo()?' Informe também <b>lote</b> e <b>validade</b> (o Fiorilli pede na requisição de entrada) — ou use <b>"Ler XML da nota fiscal"</b> para preencher tudo sozinho.':''}
         </div>
+        ${sisAtivo()?`
+        <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+          <button class="btn secondary" onclick="document.getElementById('sisXmlArquivo').click()">📄 Ler XML da nota fiscal (NF-e)</button>
+          <input type="file" id="sisXmlArquivo" accept=".xml,text/xml,application/xml" style="display:none;" onchange="sisLerArquivoXml(event,'${p.chave}')">
+          <span class="muted" style="font-size:12px;">Confere a nota com o pedido (itens, quantidades, preços, lote e validade) e preenche a baixa.</span>
+        </div>
+        ${sisXmlPainelHTML(p)}`:''}
         <div class="formgrid" style="margin-bottom:12px;">
           <div class="field"><label>Data do recebimento</label><input type="date" id="recData" value="${hojeISO()}"></div>
           <div class="field"><label>Nota fiscal / documento</label><input id="recNota" placeholder="Ex: NF 12345"></div>
-          <div class="field half"><label>Observação da entrega</label><input id="recObs" placeholder="Ex: 2 caixas com avaria, devolvidas"></div>
+          ${sisAtivo()?`<div class="field"><label>Emissão da nota</label><input type="date" id="recEmissao"></div>`:''}
+          <div class="field ${sisAtivo()?'':'half'}"><label>Observação da entrega</label><input id="recObs" placeholder="Ex: 2 caixas com avaria, devolvidas"></div>
         </div>`:''}
 
         <div class="table-wrap" style="max-height:none;">
           <table>
             <thead><tr>
               <th>Item vencido</th><th>Unid.</th><th class="right">Qtd. pedida</th><th class="right">Recebido</th><th class="right">Pendente</th>
-              <th class="right">Vlr. unit.</th><th class="right">Valor pendente</th>${podeEd?`<th class="no-print right">Receber agora</th>`:''}
+              <th class="right">Vlr. unit.</th><th class="right">Valor pendente</th>${podeEd?`<th class="no-print right">Receber agora</th>`:''}${podeEd && sisAtivo()?'<th class="no-print">Lote</th><th class="no-print">Validade</th>':''}
             </tr></thead>
             <tbody>
-              ${p.linhas.length===0?`<tr class="empty-row"><td colspan="${podeEd?8:7}">Nenhum item vencido por este fornecedor nesta cotação.</td></tr>`:
+              ${p.linhas.length===0?`<tr class="empty-row"><td colspan="${(podeEd?8:7)+(podeEd && sisAtivo()?2:0)}">Nenhum item vencido por este fornecedor nesta cotação.</td></tr>`:
                 p.linhas.map(l=>`
                 <tr class="${l.pendente===0?'linha-completa':''}">
                   <td style="white-space:normal;min-width:220px;"><b>${esc(l.descricao)}</b>${l.excedente>0?` <span class="badge tipo-disp" title="Recebido a mais do que o pedido">+${fmtNum(l.excedente)} a mais</span>`:''}</td>
@@ -4802,6 +4923,9 @@ function viewPedidoDetalhe(p){
                   <td class="right">${fmtMoney(l.unit)}</td>
                   <td class="right">${l.valorPendente>0?fmtMoney(l.valorPendente):'—'}</td>
                   ${podeEd?`<td class="no-print right">${l.pendente>0?`<input class="rec-input" type="number" min="0" step="any" id="recQtd_${l.id}" placeholder="0" title="Máximo pendente: ${fmtNum(l.pendente)}">`:'<span class="muted">completo</span>'}</td>`:''}
+                  ${podeEd && sisAtivo()?(l.pendente>0
+                    ? `<td class="no-print"><input class="rec-input" style="width:110px;text-align:left;" id="recLote_${l.id}" placeholder="lote"></td><td class="no-print"><input class="rec-input" style="width:130px;text-align:left;" type="date" id="recVal_${l.id}"></td>`
+                    : '<td class="no-print"></td><td class="no-print"></td>'):''}
                 </tr>`).join('')}
             </tbody>
             <tfoot><tr>
@@ -4810,7 +4934,7 @@ function viewPedidoDetalhe(p){
               <td class="right">${fmtNum(p.totalRecebida)}</td>
               <td class="right">${fmtNum(p.totalPendente)}</td>
               <td></td>
-              <td class="right">${fmtMoney(p.valorPendente)}</td>${podeEd?'<td class="no-print"></td>':''}
+              <td class="right">${fmtMoney(p.valorPendente)}</td>${podeEd?'<td class="no-print"></td>':''}${podeEd && sisAtivo()?'<td class="no-print"></td><td class="no-print"></td>':''}
             </tr></tfoot>
           </table>
         </div>
@@ -4827,15 +4951,16 @@ function viewPedidoDetalhe(p){
         <div class="subtitle">Todo recebimento registrado fica guardado aqui, com data, nota fiscal e quem lançou. Nada é sobrescrito.</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Data</th><th>Item</th><th class="right">Qtd.</th><th>Nota fiscal</th><th>Observação</th><th>Registrado por</th>${podeEd?'<th class="no-print"></th>':''}</tr></thead>
+            <thead><tr><th>Data</th><th>Item</th><th class="right">Qtd.</th><th>Nota fiscal</th><th>Lote / Validade</th><th>Observação</th><th>Registrado por</th>${podeEd?'<th class="no-print"></th>':''}</tr></thead>
             <tbody>
-              ${entregas.length===0?`<tr class="empty-row"><td colspan="${podeEd?7:6}">Nenhuma entrega registrada até o momento.</td></tr>`:
+              ${entregas.length===0?`<tr class="empty-row"><td colspan="${podeEd?8:7}">Nenhuma entrega registrada até o momento.</td></tr>`:
                 entregas.map(e=>`
                 <tr class="entrega-row">
                   <td>${fmtDateBR(e.data)}</td>
                   <td style="white-space:normal;min-width:200px;">${esc(descItem(e.itemId))}</td>
                   <td class="right"><b>${fmtNum(e.quantidade)}</b></td>
-                  <td>${esc(e.nota)||'—'}</td>
+                  <td>${esc(e.nota)||'—'}${e.emissao?`<div class="fio-ref">emissão ${fmtDateBR(e.emissao)}</div>`:''}</td>
+                  <td style="white-space:normal;">${(Array.isArray(e.lotes) && e.lotes.length) ? e.lotes.map(lo=> esc(lo.lote) + (lo.validade?' · '+fmtDateBR(lo.validade):'')).join('<br>') : (e.lote||e.validade ? esc(e.lote||'') + (e.validade?' · '+fmtDateBR(e.validade):'') : '—')}</td>
                   <td style="white-space:normal;">${esc(e.obs)||'—'}</td>
                   <td>${esc(e.usuario)||'—'}</td>
                   ${podeEd?`<td class="no-print"><button class="btn ghost small" onclick="excluirEntregaPedido('${p.chave}','${e.id}')">🗑 excluir</button></td>`:''}
@@ -5215,9 +5340,1591 @@ function viewRelPendencias(){
   `;
 }
 
+/* ============================================================
+   5. INTEGRAÇÃO FIORILLI (SIS)
+   ------------------------------------------------------------
+   O Fiorilli SIS guarda os dados num banco Firebird no servidor da
+   prefeitura, dentro da rede interna, e só o servidor de aplicação da
+   Fiorilli fala com esse banco. O Cotações roda no navegador e grava no
+   Firebase (nuvem): ele não tem como — nem deve — entrar direto no banco
+   da Fiorilli.
+
+   Por isso a conversa é em UM sentido só, Fiorilli -> Cotações, por
+   arquivo: exporta-se do Fiorilli (Excel/CSV/TXT, ou Ctrl+C na lista) e
+   importa-se aqui. NADA é gravado no Fiorilli. Se a TI liberar um usuário
+   somente leitura no banco, a "ponte" (ponte-fiorilli.ps1, fora deste
+   arquivo) gera os mesmos arquivos sozinha e o app já reconhece as colunas.
+
+   Onde os dados ficam: FORA do documento principal (que tem limite de
+   1 MB no Firestore), em documentos próprios da mesma coleção:
+     <código>__fiorilli                  -> índice {geracao, partes, ...}
+     <código>__fiorilli__<geracao>_<n>   -> pedaços do JSON
+   Cada gravação cria uma geração nova e só depois troca o índice, então
+   uma falha no meio nunca estraga a cópia anterior. Nenhum cadastro,
+   cotação ou entrega já gravado é alterado; o vínculo com o catálogo é
+   um campo novo e opcional (produto.codigoFiorilli), e os itens que vêm
+   do Fiorilli levam item.codigoFiorilli.
+   ============================================================ */
+let FIORILLI = { versao:1, produtos:[], entradas:[], importacoes:[], atualizadoEm:'' };
+let fioCarregado = false;
+let fioErroCarga = false;
+let fioIndiceCache = null;
+let fioImport = null;        // importação em conferência: {origem, aoa, linhaCab, tipo, mapa:{campo: nº da coluna}}
+let fioColarAberto = false;
+let fioAba = '';
+let fioSelecionados = new Set();
+let fioListaVisivel = [];
+let filtroFio = { termo:'', mostrar:'', ordem:'descricao', meses:3, limite:200,
+                  entTermo:'', entForn:'', entDe:'', entAte:'', entLimite:300,
+                  vincTermo:'', vincSo:'' };
+const FIO_PARTE_MAX = 300000; // caracteres por pedaço: 300 mil x até 3 bytes fica abaixo de 1 MB
+
+const FIO_CAMPOS = {
+  codigo:       {rotulo:'Código no Fiorilli',     sin:['codigo','cod','cod produto','codigo produto','codigo do produto','cadpro','cd produto','cod material','codigo material','cod item','codigo item','reduzido']},
+  descricao:    {rotulo:'Descrição do produto',   sin:['descricao','descricao do produto','descricao produto','disc1','produto','nome do produto','nome','medicamento','material','especificacao','discriminacao','item descricao']},
+  unidade:      {rotulo:'Unidade',                sin:['unidade','unid','un','und','unid1','unidade de medida','unid medida','emb','embalagem']},
+  estoque:      {rotulo:'Estoque atual',          sin:['estoque','saldo','saldo atual','estoque atual','quan3','qtd estoque','qtde estoque','quantidade em estoque','saldo estoque','saldo fisico','disponivel','estoque disponivel']},
+  estoqueMinimo:{rotulo:'Estoque mínimo',         sin:['estoque minimo','minimo','est minimo','est min','qtd minima','quantidade minima']},
+  consumoMedio: {rotulo:'Consumo médio mensal',   sin:['consumo medio','consumo medio mensal','cmm','consumo mensal','media mensal','media de consumo','consumo']},
+  data:         {rotulo:'Data da entrada',        sin:['data','data entrada','data da entrada','dt entrada','data de entrada','data emissao','emissao','data da nota','data nf','data recebimento','dt recebimento']},
+  quantidade:   {rotulo:'Quantidade',             sin:['quantidade','qtd','qtde','quan1','quan','quant','qtd recebida','quantidade recebida','qtd entrada']},
+  valorUnit:    {rotulo:'Valor unitário',         sin:['valor unitario','vl unit','vl unitario','vlr unit','vlr unitario','valor unit','preco unitario','preco','vaun1','vaun','valor unt','vaunven','custo unitario','custo medio','preco medio','unitario','custo']},
+  valorTotal:   {rotulo:'Valor total',            sin:['valor total','vl total','vlr total','vato1','vato','total','valor']},
+  fornecedor:   {rotulo:'Fornecedor',             sin:['fornecedor','razao social','nome fornecedor','nome do fornecedor','credor','distribuidor','fornecedor credor']},
+  documento:    {rotulo:'Nota fiscal / documento',sin:['nota fiscal','nota','nf','n nf','no nf','num nf','numero nf','numero nota','n nota','nfe','nf e','documento','doc','documento fiscal','numero documento']},
+  lote:         {rotulo:'Lote',                   sin:['lote','n lote','numero lote']},
+  validade:     {rotulo:'Validade',               sin:['validade','vencimento','data validade','dt validade']},
+};
+// Ordem em que as colunas são reconhecidas (a primeira que reconhecer fica com a coluna).
+const FIO_ORDEM_CAMPOS = ['codigo','descricao','data','quantidade','valorUnit','valorTotal','estoqueMinimo','estoque','consumoMedio','unidade','fornecedor','documento','lote','validade'];
+const FIO_TIPOS = {
+  produtos: {rotulo:'📦 Produtos, estoque e consumo', campos:['codigo','descricao','unidade','estoque','estoqueMinimo','consumoMedio','valorUnit'], obrig:['descricao']},
+  entradas: {rotulo:'🧾 Entradas de notas (compras recebidas)', campos:['data','documento','fornecedor','codigo','descricao','unidade','quantidade','valorUnit','valorTotal','lote','validade'], obrig:['data','descricao']},
+};
+
+/* ---- Utilitários ---- */
+function fioNorm(s){ return normTxt(s).replace(/[^a-z0-9]+/g,' ').trim(); }
+function fioChaveCod(c){ return String(c===undefined||c===null?'':c).trim().toUpperCase().replace(/^0+(?=[0-9A-Z])/,''); }
+function fioNum(v){
+  if(v===undefined || v===null || v==='') return null;
+  if(typeof v==='number') return isFinite(v) ? v : null;
+  let s = String(v).trim().replace(/\s|R\$/g,'');
+  if(!s) return null;
+  let neg = false;
+  if(/^\(.*\)$/.test(s)){ neg = true; s = s.slice(1,-1); }
+  if(s.includes(',') && s.includes('.') && s.lastIndexOf('.') > s.lastIndexOf(',')) s = s.replace(/,/g,'');      // 1,234.56
+  else if(s.includes(',')) s = s.replace(/\./g,'').replace(',', '.');                                              // 1.234,56
+  else if(/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g,'');                                                // 12.500 (milhar)
+  const n = Number(s);
+  if(!isFinite(n)) return null;
+  return neg ? -n : n;
+}
+function fioData(v){
+  if(v===undefined || v===null || v==='') return '';
+  if(v instanceof Date) return isNaN(v.getTime()) ? '' : v.toISOString().slice(0,10);
+  if(typeof v==='number'){
+    if(v>20000 && v<80000) return new Date(Math.round((v-25569)*86400000)).toISOString().slice(0,10); // data serial do Excel
+    return '';
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\b/);
+  if(m){
+    let a = Number(m[3]); if(a<100) a += (a<70 ? 2000 : 1900);
+    const d = Number(m[1]), me = Number(m[2]);
+    if(d<1 || d>31 || me<1 || me>12) return '';
+    return `${a}-${String(me).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  }
+  return '';
+}
+function fmtMoney4(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:2,maximumFractionDigits:4}); }
+function fmtNumFio(v){ return (v===undefined || v===null || v==='') ? '—' : Number(v).toLocaleString('pt-BR',{maximumFractionDigits:2}); }
+function fioTemDados(){ return FIORILLI.produtos.length>0 || FIORILLI.entradas.length>0; }
+function fioGarantirEstrutura(){
+  if(!FIORILLI || typeof FIORILLI!=='object') FIORILLI = {};
+  if(!Array.isArray(FIORILLI.produtos)) FIORILLI.produtos = [];
+  if(!Array.isArray(FIORILLI.entradas)) FIORILLI.entradas = [];
+  if(!Array.isArray(FIORILLI.importacoes)) FIORILLI.importacoes = [];
+  if(typeof FIORILLI.atualizadoEm!=='string') FIORILLI.atualizadoEm = '';
+  FIORILLI.versao = 1;
+}
+
+/* ---- Nuvem: carregar e salvar em pedaços, separado do documento principal ---- */
+function fioDocBase(){ return getAccessCode() + '__fiorilli'; }
+async function fioCarregar(){
+  fioGarantirEstrutura();
+  if(!firebaseOk || !getAccessCode()){ fioCarregado = true; return; }
+  try{
+    const col = db.collection(FIRESTORE_COLLECTION);
+    const meta = await col.doc(fioDocBase()).get();
+    if(meta.exists){
+      const m = meta.data() || {};
+      const n = Number(m.partes)||0, g = String(m.geracao||'');
+      const docs = await Promise.all(Array.from({length:n}, (_,i)=> col.doc(fioDocBase()+'__'+g+'_'+i).get()));
+      if(docs.some(d=>!d.exists)) throw new Error('parte dos dados do Fiorilli não encontrada');
+      const json = docs.map(d=> String((d.data()||{}).parte||'')).join('');
+      if(json) FIORILLI = JSON.parse(json);
+    }
+    fioErroCarga = false;
+  }catch(e){
+    console.error(e);
+    fioErroCarga = true;
+    showToast('Não foi possível carregar os dados do Fiorilli guardados na nuvem. Recarregue a página (F5) antes de importar de novo.', 'warning');
+  }
+  fioGarantirEstrutura();
+  fioIndiceCache = null;
+  fioCarregado = true;
+}
+async function fioSalvar(){
+  fioIndiceCache = null;
+  if(!firebaseOk) return true;
+  if(fioErroCarga){ showToast('Os dados do Fiorilli não foram carregados direito — recarregue a página (F5) antes de importar.', 'error'); return false; }
+  FIORILLI.atualizadoEm = new Date().toISOString();
+  const json = JSON.stringify(FIORILLI);
+  const partes = [];
+  let i = 0;
+  while(i < json.length){
+    let fim = Math.min(json.length, i + FIO_PARTE_MAX);
+    const cc = json.charCodeAt(fim-1);
+    if(fim < json.length && cc>=0xD800 && cc<=0xDBFF) fim--; // não corta um caractere especial ao meio
+    partes.push(json.slice(i, fim)); i = fim;
+  }
+  const col = db.collection(FIRESTORE_COLLECTION);
+  const base = fioDocBase();
+  try{
+    const metaAnt = await col.doc(base).get();
+    const ant = metaAnt.exists ? (metaAnt.data()||{}) : null;
+    const geracao = Date.now().toString(36);
+    await Promise.all(partes.map((p,k)=> col.doc(base+'__'+geracao+'_'+k).set({ parte:p })));
+    await col.doc(base).set({ geracao, partes: partes.length, caracteres: json.length, atualizadoEm: FIORILLI.atualizadoEm });
+    if(ant && ant.geracao && String(ant.geracao)!==geracao){
+      for(let k=0; k<(Number(ant.partes)||0); k++){ try{ await col.doc(base+'__'+ant.geracao+'_'+k).delete(); }catch(e){} }
+    }
+    return true;
+  }catch(e){
+    console.error(e);
+    showToast('Não foi possível salvar os dados do Fiorilli na nuvem agora. Verifique a conexão e importe de novo.', 'error');
+    return false;
+  }
+}
+
+/* ---- Índice: produto do Fiorilli + entradas + último preço pago ---- */
+function fioChaveProduto(p){ const k = fioChaveCod(p.codigo); return k ? 'c:'+k : 'd:'+fioNorm(p.descricao); }
+function fioIndice(){
+  if(fioIndiceCache) return fioIndiceCache;
+  const porCod = new Map(), porDesc = new Map(), porChave = new Map();
+  const lista = FIORILLI.produtos.map(p=>{
+    const info = { p, chave: fioChaveProduto(p), entradas:[], ultima:null, precoMedio12:null };
+    const kc = fioChaveCod(p.codigo); if(kc && !porCod.has(kc)) porCod.set(kc, info);
+    const kd = fioNorm(p.descricao); if(kd && !porDesc.has(kd)) porDesc.set(kd, info);
+    porChave.set(info.chave, info);
+    return info;
+  });
+  FIORILLI.entradas.forEach(e=>{
+    const kc = fioChaveCod(e.codigo);
+    const info = (kc && porCod.get(kc)) || porDesc.get(fioNorm(e.descricao));
+    if(info) info.entradas.push(e);
+  });
+  const limite12 = somarDiasISO(hojeISO(), -365);
+  lista.forEach(info=>{
+    info.entradas.sort((a,b)=> (b.data||'').localeCompare(a.data||''));
+    info.ultima = info.entradas.find(e=> Number(e.valorUnit)>0) || info.entradas[0] || null;
+    let q = 0, v = 0;
+    info.entradas.forEach(e=>{
+      if((e.data||'') >= limite12 && Number(e.valorUnit)>0 && Number(e.quantidade)>0){ q += Number(e.quantidade); v += Number(e.quantidade)*Number(e.valorUnit); }
+    });
+    info.precoMedio12 = q>0 ? v/q : null;
+  });
+  fioIndiceCache = { lista, porCod, porDesc, porChave };
+  return fioIndiceCache;
+}
+function fioInfoPorCodigo(cod){ const k = fioChaveCod(cod); return k ? (fioIndice().porCod.get(k) || null) : null; }
+function fioInfoProdutoCatalogo(cp){
+  if(!cp || !fioTemDados()) return null;
+  return (cp.codigoFiorilli && fioInfoPorCodigo(cp.codigoFiorilli)) || fioIndice().porDesc.get(fioNorm(cp.descricao)) || null;
+}
+function fioInfoItem(it){
+  if(!it || !fioTemDados()) return null;
+  if(it.codigoFiorilli){ const i = fioInfoPorCodigo(it.codigoFiorilli); if(i) return i; }
+  const cp = STATE.produtos.find(x=> normTxt(x.descricao)===normTxt(it.descricao));
+  if(cp){ const i = fioInfoProdutoCatalogo(cp); if(i) return i; }
+  return fioIndice().porDesc.get(fioNorm(it.descricao)) || null;
+}
+// Último preço PAGO (vem das entradas); se não houver entrada, o custo informado no cadastro do Fiorilli.
+function fioUltimoPreco(info){
+  if(!info) return null;
+  const u = info.ultima;
+  if(u && Number(u.valorUnit)>0) return { valor:Number(u.valorUnit), data:u.data||'', unidade:u.unidade||info.p.unidade||'', fornecedor:u.fornecedor||'', documento:u.documento||'' };
+  if(Number(info.p.valorUnit)>0) return { valor:Number(info.p.valorUnit), data:'', unidade:info.p.unidade||'', fornecedor:'', documento:'', doCadastro:true };
+  return null;
+}
+function fioCobertura(info){ const c = Number(info.p.consumoMedio); return c>0 ? (Number(info.p.estoque)||0)/c : null; }
+function fioSugestao(info, meses){
+  const c = Number(info.p.consumoMedio);
+  if(!(c>0)) return null;
+  return Math.max(0, Math.ceil(c*meses - Math.max(0, Number(info.p.estoque)||0)));
+}
+// Catálogo do Cotações x produto do Fiorilli (calculado na hora, porque o catálogo muda).
+function fioMapaCatalogo(){
+  const porCod = new Map(), porDesc = new Map();
+  STATE.produtos.forEach(cp=>{
+    const k = fioChaveCod(cp.codigoFiorilli); if(k && !porCod.has(k)) porCod.set(k, cp);
+    const d = fioNorm(cp.descricao); if(d && !porDesc.has(d)) porDesc.set(d, cp);
+  });
+  return (info)=>{ const k = fioChaveCod(info.p.codigo); return (k && porCod.get(k)) || porDesc.get(fioNorm(info.p.descricao)) || null; };
+}
+
+/* ---- Leitura dos arquivos exportados do Fiorilli ---- */
+function fioTextoDeBuffer(buf){
+  try{ return new TextDecoder('utf-8', {fatal:true}).decode(buf).replace(/^﻿/,''); }
+  catch(e){ return new TextDecoder('windows-1252').decode(buf); } // programas Delphi gravam em ANSI
+}
+function fioLarguraMax(aoa){ return (aoa||[]).reduce((m,l)=> Math.max(m, Array.isArray(l)?l.length:0), 0); }
+function fioAoaDeTexto(txt){
+  txt = String(txt||'').replace(/^﻿/,'');
+  const res = Papa.parse(txt, { header:false, skipEmptyLines:'greedy', delimiter:'' });
+  let aoa = (res.data||[]).map(l=> l.map(c=> typeof c==='string' ? c.trim() : c));
+  // Relatório em texto com colunas alinhadas por espaços: separa por 2 ou mais espaços.
+  if(fioLarguraMax(aoa)<=1) aoa = txt.split(/\r?\n/).filter(l=>l.trim()).map(l=> l.trim().split(/\s{2,}/));
+  return aoa;
+}
+function fioAoaDePlanilha(buf){
+  const wb = XLSX.read(buf, {type:'array'});
+  let aoa = [];
+  // Junta todas as abas: alguns relatórios exportam uma aba por página.
+  wb.SheetNames.forEach(n=>{ aoa = aoa.concat(XLSX.utils.sheet_to_json(wb.Sheets[n], {header:1, defval:'', blankrows:false})); });
+  return aoa;
+}
+function fioLerArquivo(file){
+  return new Promise((resolve, reject)=>{
+    const nome = (file.name||'').toLowerCase();
+    const r = new FileReader();
+    r.onerror = ()=> reject(new Error('Não foi possível ler o arquivo.'));
+    r.onload = (e)=>{
+      try{
+        const buf = new Uint8Array(e.target.result);
+        if(/\.(csv|txt|tsv|prn)$/.test(nome)){ resolve(fioAoaDeTexto(fioTextoDeBuffer(buf))); return; }
+        let aoa = null;
+        try{ aoa = fioAoaDePlanilha(buf); }catch(err){ aoa = null; }
+        if(!aoa || fioLarguraMax(aoa)<=1) aoa = fioAoaDeTexto(fioTextoDeBuffer(buf));
+        resolve(aoa);
+      }catch(err){ reject(new Error('Não foi possível ler este arquivo: ' + err.message)); }
+    };
+    r.readAsArrayBuffer(file);
+  });
+}
+
+/* ---- Reconhecimento automático do cabeçalho e das colunas ---- */
+let FIO_SIN_CACHE = null;
+function fioSinonimos(campo){
+  if(!FIO_SIN_CACHE){ FIO_SIN_CACHE = {}; Object.keys(FIO_CAMPOS).forEach(c=> FIO_SIN_CACHE[c] = FIO_CAMPOS[c].sin.map(fioNorm)); }
+  return FIO_SIN_CACHE[campo] || [];
+}
+function fioCampoDoCabecalho(cel){ const n = fioNorm(cel); return n ? (FIO_ORDEM_CAMPOS.find(c=> fioSinonimos(c).includes(n)) || null) : null; }
+function fioDetectarCabecalho(aoa){
+  let melhor = 0, pontos = -1;
+  aoa.slice(0,40).forEach((l,i)=>{
+    const s = new Set(); (l||[]).forEach(c=>{ const k = fioCampoDoCabecalho(c); if(k) s.add(k); });
+    if(s.size > pontos){ pontos = s.size; melhor = i; }
+  });
+  return pontos>=2 ? melhor : 0;
+}
+function fioMapearAuto(cab, tipo){
+  const norm = (cab||[]).map(c=> fioNorm(c));
+  const usados = new Set(), mapa = {};
+  const campos = FIO_ORDEM_CAMPOS.filter(c=> FIO_TIPOS[tipo].campos.includes(c));
+  // 1ª passada: nome da coluna igual a um sinônimo (na ordem de preferência dos sinônimos)
+  campos.forEach(c=>{
+    for(const s of fioSinonimos(c)){
+      const i = norm.findIndex((n,k)=> n===s && !usados.has(k));
+      if(i>-1){ mapa[c] = i; usados.add(i); break; }
+    }
+  });
+  // 2ª passada: nome da coluna começa com o sinônimo (ex.: "Estoque atual (un)")
+  campos.forEach(c=>{
+    if(mapa[c]!==undefined) return;
+    for(const s of fioSinonimos(c)){
+      if(s.length<4) continue;
+      const i = norm.findIndex((n,k)=> !usados.has(k) && n.startsWith(s+' '));
+      if(i>-1){ mapa[c] = i; usados.add(i); break; }
+    }
+  });
+  return mapa;
+}
+function fioIniciarImportacao(aoa, origem){
+  aoa = (aoa||[]).filter(l=> Array.isArray(l) && l.some(c=> String(c===undefined||c===null?'':c).trim()!==''));
+  if(aoa.length<2){ showToast('Não encontrei linhas de dados nesse conteúdo.', 'warning'); return; }
+  const linhaCab = fioDetectarCabecalho(aoa);
+  const cab = aoa[linhaCab] || [];
+  const mp = fioMapearAuto(cab, 'produtos'), me = fioMapearAuto(cab, 'entradas');
+  const tipo = (me.data!==undefined && (me.quantidade!==undefined || me.valorUnit!==undefined || me.valorTotal!==undefined)) ? 'entradas' : 'produtos';
+  fioImport = { origem, aoa, linhaCab, tipo, mapa: tipo==='entradas' ? me : mp };
+  fioColarAberto = false;
+  fioAba = 'importar';
+  render();
+}
+function fioEscolherArquivo(event){
+  if(semPermissao('integracaoFiorilli')){ event.target.value=''; return; }
+  const file = event.target.files[0];
+  if(!file) return;
+  fioLerArquivo(file).then(aoa=> fioIniciarImportacao(aoa, file.name)).catch(err=> showToast(err.message || 'Não foi possível ler este arquivo.', 'error'));
+  event.target.value = '';
+}
+function fioAbrirColar(){ if(semPermissao('integracaoFiorilli')) return; fioColarAberto = !fioColarAberto; render(); if(fioColarAberto){ const el = document.getElementById('fioColarTexto'); if(el) el.focus(); } }
+function fioLerColado(){
+  if(semPermissao('integracaoFiorilli')) return;
+  const t = (document.getElementById('fioColarTexto')||{}).value || '';
+  if(!t.trim()){ showToast('Cole aqui as linhas copiadas do Fiorilli (Ctrl+V).', 'warning'); return; }
+  fioIniciarImportacao(fioAoaDeTexto(t), 'dados colados');
+}
+function fioCancelarImportacao(){ fioImport = null; render(); }
+function fioSetTipoImport(t){ if(!fioImport || !FIO_TIPOS[t]) return; fioImport.tipo = t; fioImport.mapa = fioMapearAuto(fioImport.aoa[fioImport.linhaCab], t); render(); }
+function fioSetLinhaCab(v){
+  if(!fioImport) return;
+  const n = Math.min(fioImport.aoa.length, Math.max(1, parseInt(v,10)||1));
+  fioImport.linhaCab = n-1;
+  fioImport.mapa = fioMapearAuto(fioImport.aoa[fioImport.linhaCab], fioImport.tipo);
+  render();
+}
+function fioSetMapa(campo, valor){
+  if(!fioImport) return;
+  const m = fioImport.mapa;
+  if(valor===''){ delete m[campo]; }
+  else {
+    const i = Number(valor);
+    Object.keys(m).forEach(k=>{ if(m[k]===i) delete m[k]; }); // uma coluna serve a uma informação só
+    m[campo] = i;
+  }
+  render();
+}
+
+/* ---- Transforma as linhas do arquivo em registros ---- */
+function fioLinhasMapeadas(imp){
+  const cabNorm = (imp.aoa[imp.linhaCab]||[]).map(c=> fioNorm(c)).join('|');
+  const m = imp.mapa;
+  const val = (l, c)=> m[c]!==undefined ? l[m[c]] : undefined;
+  const txt = (l, c)=>{ const v = val(l,c); return String(v===undefined||v===null?'':v).trim(); };
+  const out = [];
+  imp.aoa.slice(imp.linhaCab+1).forEach(l=>{
+    if(l.map(c=> fioNorm(c)).join('|')===cabNorm) return;          // cabeçalho repetido em cada página
+    const r = { codigo: txt(l,'codigo'), descricao: txt(l,'descricao'), unidade: txt(l,'unidade') };
+    if(typeof val(l,'codigo')==='number') r.codigo = String(val(l,'codigo'));
+    if(!r.descricao && !r.codigo) return;
+    if(/^(sub ?)?total\b/.test(fioNorm(r.descricao)) || /^(sub ?)?total\b/.test(fioNorm(r.codigo))) return; // linhas de total
+    if(imp.tipo==='produtos'){
+      r.estoque = fioNum(val(l,'estoque'));
+      r.estoqueMinimo = fioNum(val(l,'estoqueMinimo'));
+      r.consumoMedio = fioNum(val(l,'consumoMedio'));
+      r.valorUnit = fioNum(val(l,'valorUnit'));
+    } else {
+      r.data = fioData(val(l,'data'));
+      r.quantidade = fioNum(val(l,'quantidade'));
+      r.valorUnit = fioNum(val(l,'valorUnit'));
+      r.valorTotal = fioNum(val(l,'valorTotal'));
+      if(!(r.valorUnit>0) && r.valorTotal>0 && r.quantidade>0) r.valorUnit = r.valorTotal / r.quantidade;
+      r.fornecedor = txt(l,'fornecedor');
+      r.documento = txt(l,'documento');
+      r.lote = txt(l,'lote');
+      r.validade = fioData(val(l,'validade')) || txt(l,'validade');
+    }
+    out.push(r);
+  });
+  return out;
+}
+function fioLinhaValida(r, tipo){
+  const temProduto = !!r.descricao || (!!r.codigo && !!fioInfoPorCodigo(r.codigo));
+  if(tipo==='produtos') return !!r.descricao;
+  return !!r.data && temProduto && (Number(r.quantidade)>0 || Number(r.valorUnit)>0);
+}
+function fioChaveEntrada(e){
+  return [e.data, fioChaveCod(e.codigo) || fioNorm(e.descricao), Number(e.quantidade)||0,
+          Number(e.valorUnit)>0 ? Number(e.valorUnit).toFixed(4) : '', fioNorm(e.documento), fioNorm(e.fornecedor), fioNorm(e.lote)].join('|');
+}
+// Inclui ou atualiza um produto do Fiorilli. "soGarantir" (vindo das entradas) só cria o que falta,
+// sem mexer no estoque/consumo nem na data de atualização do estoque.
+function fioUpsertProduto(r, agora, idx, soGarantir){
+  const kc = fioChaveCod(r.codigo), kd = fioNorm(r.descricao);
+  let i = kc ? idx.cod.get(kc) : undefined;
+  if(i===undefined && kd){
+    const j = idx.desc.get(kd);
+    if(j!==undefined && (!kc || !fioChaveCod(FIORILLI.produtos[j].codigo))) i = j;
+  }
+  const NUM = ['estoque','estoqueMinimo','consumoMedio','valorUnit'];
+  if(i===undefined){
+    if(!r.descricao) return 'ignorada';
+    const p = { codigo: r.codigo||'', descricao: r.descricao, unidade: r.unidade||'' };
+    if(!soGarantir){ NUM.forEach(k=>{ if(r[k]!==null && r[k]!==undefined) p[k] = r[k]; }); p.atualizadoEm = agora; }
+    FIORILLI.produtos.push(p);
+    i = FIORILLI.produtos.length-1;
+    if(kc) idx.cod.set(kc, i);
+    if(kd && !idx.desc.has(kd)) idx.desc.set(kd, i);
+    return 'novo';
+  }
+  const p = FIORILLI.produtos[i];
+  if(r.codigo && !p.codigo){ p.codigo = r.codigo; idx.cod.set(kc, i); }
+  if(soGarantir){
+    if(!p.descricao && r.descricao) p.descricao = r.descricao;
+    if(!p.unidade && r.unidade) p.unidade = r.unidade;
+    return 'existente';
+  }
+  if(r.descricao) p.descricao = r.descricao;
+  if(r.unidade) p.unidade = r.unidade;
+  NUM.forEach(k=>{ if(r[k]!==null && r[k]!==undefined) p[k] = r[k]; });
+  p.atualizadoEm = agora;
+  return 'atualizado';
+}
+async function fioConfirmarImportacao(){
+  if(semPermissao('integracaoFiorilli')) return;
+  if(!fioImport) return;
+  const tipo = fioImport.tipo, def = FIO_TIPOS[tipo];
+  const faltando = def.obrig.filter(c=> fioImport.mapa[c]===undefined);
+  if(faltando.length){ showToast('Indique qual coluna tem: ' + faltando.map(c=> FIO_CAMPOS[c].rotulo).join(', ') + '.', 'warning'); return; }
+  const linhas = fioLinhasMapeadas(fioImport);
+  const validas = linhas.filter(r=> fioLinhaValida(r, tipo));
+  if(!validas.length){ showToast('Nenhuma linha válida para importar. Confira as colunas indicadas.', 'warning'); return; }
+  const copia = JSON.stringify(FIORILLI); // para desfazer se a gravação na nuvem falhar
+  const agora = new Date().toISOString();
+  const idx = { cod:new Map(), desc:new Map() };
+  FIORILLI.produtos.forEach((p,i)=>{ const kc = fioChaveCod(p.codigo); if(kc && !idx.cod.has(kc)) idx.cod.set(kc,i); const kd = fioNorm(p.descricao); if(kd && !idx.desc.has(kd)) idx.desc.set(kd,i); });
+  let novos = 0, atualizados = 0, repetidas = 0;
+  if(tipo==='produtos'){
+    validas.forEach(r=>{ const res = fioUpsertProduto(r, agora, idx, false); if(res==='novo') novos++; else if(res==='atualizado') atualizados++; });
+  } else {
+    const ja = new Set(FIORILLI.entradas.map(fioChaveEntrada)); // repetidas = já importadas antes
+    validas.forEach(r=>{
+      const e = { data:r.data, codigo:r.codigo, descricao:r.descricao, unidade:r.unidade, quantidade:r.quantidade, valorUnit:r.valorUnit,
+                  valorTotal:r.valorTotal, fornecedor:r.fornecedor, documento:r.documento, lote:r.lote, validade:r.validade };
+      if(!e.descricao){ const info = fioInfoPorCodigo(e.codigo); if(info) e.descricao = info.p.descricao; }
+      if(ja.has(fioChaveEntrada(e))){ repetidas++; return; }
+      Object.keys(e).forEach(k=>{ if(e[k]===null || e[k]===undefined || e[k]==='') delete e[k]; });
+      e.importadoEm = agora;
+      FIORILLI.entradas.push(e);
+      fioUpsertProduto({ codigo:e.codigo, descricao:e.descricao, unidade:e.unidade }, agora, idx, true);
+      novos++;
+    });
+  }
+  FIORILLI.importacoes.unshift({
+    em: agora, usuario: currentUser ? (currentUser.nome||currentUser.usuario) : '', origem: fioImport.origem, tipo,
+    lidas: linhas.length, validas: validas.length, novos, atualizados, repetidas, ignoradas: linhas.length - validas.length
+  });
+  FIORILLI.importacoes = FIORILLI.importacoes.slice(0, 60);
+  fioIndiceCache = null;
+  const ok = await fioSalvar();
+  if(!ok){ FIORILLI = JSON.parse(copia); fioGarantirEstrutura(); fioIndiceCache = null; render(); return; }
+  fioImport = null;
+  fioAba = tipo==='entradas' ? 'entradas' : 'produtos';
+  render();
+  if(tipo==='produtos') showToast(`Importação concluída: ${novos} produto(s) novo(s) e ${atualizados} atualizado(s).`, 'success');
+  else showToast(`Importação concluída: ${novos} entrada(s) nova(s)${repetidas?`, ${repetidas} já importada(s) antes (ignoradas)`:''}.`, 'success');
+}
+async function fioApagarDados(){
+  if(!isMaster()){ showToast('Apenas o administrador pode apagar os dados importados do Fiorilli.'); return; }
+  if(!confirm('Apagar a cópia dos dados importados do Fiorilli (produtos, estoque e entradas)?\n\nIsso NÃO apaga nada no Fiorilli, nem cotações, catálogo ou entregas do Cotações. Depois é só importar de novo.')) return;
+  if(prompt('Para confirmar, digite APAGAR:')!=='APAGAR'){ showToast('Nada foi apagado.'); return; }
+  const copia = JSON.stringify(FIORILLI);
+  const hist = FIORILLI.importacoes.slice();
+  FIORILLI = { versao:1, produtos:[], entradas:[], importacoes:[{ em:new Date().toISOString(), usuario: currentUser ? (currentUser.nome||currentUser.usuario) : '', origem:'(dados apagados pelo administrador)', tipo:'limpeza', lidas:0, validas:0, novos:0, atualizados:0, repetidas:0, ignoradas:0 }].concat(hist).slice(0,60), atualizadoEm:'' };
+  fioSelecionados.clear();
+  const ok = await fioSalvar();
+  if(!ok){ FIORILLI = JSON.parse(copia); fioGarantirEstrutura(); }
+  fioIndiceCache = null;
+  render();
+  if(ok) showToast('Cópia dos dados do Fiorilli apagada.', 'success');
+}
+
+/* ---- Ações: levar produtos do Fiorilli para a cotação e para o catálogo ---- */
+function fioFiltrar(campo, valor, elId){
+  filtroFio[campo] = valor;
+  if(campo!=='limite') filtroFio.limite = 200;
+  if(campo!=='entLimite' && campo.startsWith('ent')) filtroFio.entLimite = 300;
+  render();
+  if(elId){ const el = document.getElementById(elId); if(el){ el.focus(); try{ const n = String(el.value).length; el.setSelectionRange(n,n); }catch(e){} } }
+}
+function fioSetAba(a){ fioAba = a; render(); }
+function fioAtualizarContadorSel(){ const el = document.getElementById('fioSelCount'); if(el) el.textContent = fioSelecionados.size; }
+function fioToggleSel(i, marcado){ const info = fioListaVisivel[i]; if(!info) return; if(marcado) fioSelecionados.add(info.chave); else fioSelecionados.delete(info.chave); fioAtualizarContadorSel(); }
+function fioSelecionarLista(marcar){
+  fioListaVisivel.forEach(info=>{ if(marcar) fioSelecionados.add(info.chave); else fioSelecionados.delete(info.chave); });
+  if(!marcar && fioListaVisivel.length===0) fioSelecionados.clear();
+  render();
+}
+function fioCotacoesAbertas(){ return STATE.cotacoes.filter(c=> c.status==='ABERTA').sort((a,b)=> (b.dataAbertura||'').localeCompare(a.dataAbertura||'')); }
+function fioAdicionarSelecionadosCotacao(){
+  if(semPermissao('novaCotacao')) return;
+  if(fioSelecionados.size===0){ showToast('Marque na lista os produtos que vão para a cotação.', 'warning'); return; }
+  const escolha = (document.getElementById('fioCotDestino')||{}).value || '';
+  let c = null;
+  if(escolha==='__nova__'){
+    if(!confirm('Iniciar uma cotação nova com os ' + fioSelecionados.size + ' produto(s) marcados?')) return;
+    c = { id: uid(), numero: novoNumeroCotacaoPreview(), status:'ABERTA', dataAbertura: hojeISO(), dataFechamento:'',
+          solicitante: currentUser ? (currentUser.nome||currentUser.usuario) : '', destino:'', observacoes:'',
+          fornecedoresParticipantes: [], itens: [], vencedores: {} };
+    STATE.cotacoes.push(c);
+    STATE.proximoNumero = (STATE.proximoNumero||1) + 1;
+  } else {
+    c = getCotacao(escolha);
+  }
+  if(!c || c.status!=='ABERTA'){ showToast('Escolha uma cotação em andamento.', 'warning'); return; }
+  const meses = Math.max(1, Number(filtroFio.meses)||3);
+  const idx = fioIndice(), catDe = fioMapaCatalogo();
+  let add = 0, jaTinha = 0, semSugestao = 0;
+  fioSelecionados.forEach(chave=>{
+    const info = idx.porChave.get(chave); if(!info) return;
+    const cp = catDe(info); // usa a descrição do catálogo, quando houver, para manter o padrão das cotações
+    const descricao = cp ? cp.descricao : info.p.descricao;
+    const unidade = (cp && cp.unidade) || info.p.unidade || '';
+    const kc = fioChaveCod(info.p.codigo);
+    if(c.itens.some(it=> normTxt(it.descricao)===normTxt(descricao) || (kc && fioChaveCod(it.codigoFiorilli)===kc))){ jaTinha++; return; }
+    let q = fioSugestao(info, meses);
+    if(!(q>0)){ q = 1; semSugestao++; }
+    c.itens.push({ id: uid(), descricao, unidade, quantidade: q, precos:{}, codigoFiorilli: info.p.codigo||'' });
+    add++;
+  });
+  saveState(true);
+  fioSelecionados.clear();
+  render();
+  let msg = `${add} item(ns) adicionado(s) à cotação ${c.numero}.`;
+  if(jaTinha) msg += ` ${jaTinha} já estava(m) nela.`;
+  if(semSugestao) msg += ` ${semSugestao} ficaram com quantidade 1 (sem consumo informado ou com estoque suficiente) — ajuste na cotação.`;
+  showToast(msg, 'success');
+  if(add>0 && confirm(msg + '\n\nAbrir a cotação ' + c.numero + ' agora?')){ cotacaoAbertaId = c.id; abaNovaCotacao = 'itensFornecedores'; goto('novaCotacao'); }
+}
+function fioAdicionarSelecionadosCatalogo(){
+  if(semPermissao('produtos')) return;
+  if(fioSelecionados.size===0){ showToast('Marque na lista os produtos que vão para o catálogo.', 'warning'); return; }
+  const idx = fioIndice();
+  let novos = 0, vinculados = 0, ja = 0;
+  fioSelecionados.forEach(chave=>{
+    const info = idx.porChave.get(chave); if(!info) return;
+    const cp = STATE.produtos.find(x=> normTxt(x.descricao)===normTxt(info.p.descricao));
+    if(cp){
+      if(!cp.codigoFiorilli && info.p.codigo){ cp.codigoFiorilli = String(info.p.codigo); vinculados++; } else ja++;
+      return;
+    }
+    STATE.produtos.push({ id: uid(), descricao: info.p.descricao, unidade: info.p.unidade||'', categoria:'', codigoFiorilli: info.p.codigo ? String(info.p.codigo) : '' });
+    novos++;
+  });
+  saveState(true);
+  fioSelecionados.clear();
+  render();
+  showToast(`${novos} produto(s) incluído(s) no catálogo${vinculados?`, ${vinculados} já existente(s) vinculado(s) ao Fiorilli`:''}${ja?`, ${ja} já estava(m) lá`:''}.`, 'success');
+}
+function fioVincularAutomatico(){
+  if(semPermissao('produtos')) return;
+  const idx = fioIndice();
+  let n = 0;
+  STATE.produtos.forEach(cp=>{
+    if(cp.codigoFiorilli) return;            // vínculo já definido nunca é trocado aqui
+    const info = idx.porDesc.get(fioNorm(cp.descricao));
+    if(info && info.p.codigo){ cp.codigoFiorilli = String(info.p.codigo); n++; }
+  });
+  if(n>0) saveState(true);
+  render();
+  showToast(n>0 ? `${n} produto(s) do catálogo vinculado(s) ao Fiorilli pelo nome igual.` : 'Nenhum produto novo para vincular pelo nome. Use o campo "Código no Fiorilli" para vincular manualmente.', n>0?'success':undefined);
+}
+function fioDefinirVinculo(produtoId, valor){
+  if(semPermissao('produtos')) return;
+  const cp = STATE.produtos.find(x=> x.id===produtoId); if(!cp) return;
+  const cod = String(valor||'').split(' — ')[0].trim();
+  if(cod && !fioInfoPorCodigo(cod) && !confirm('O código "' + cod + '" não está entre os produtos importados do Fiorilli. Gravar assim mesmo?')){ render(); return; }
+  cp.codigoFiorilli = cod;
+  saveState(true);
+  render();
+  showToast(cod ? 'Vínculo gravado.' : 'Vínculo removido.', 'success');
+}
+
+/* ---- Informações do Fiorilli dentro das telas de cotação e conferência ---- */
+function fioResumoItemHTML(info){
+  const partes = [];
+  const up = fioUltimoPreco(info);
+  if(up) partes.push((up.doCadastro ? 'custo ' : 'últ. compra ') + fmtMoney4(up.valor) + (up.unidade ? '/' + esc(up.unidade) : '') + (up.data ? ' em ' + fmtDateBR(up.data) : ''));
+  if(info.p.estoque!==undefined && info.p.estoque!==null) partes.push('estoque ' + fmtNumFio(info.p.estoque) + (info.p.unidade ? ' ' + esc(info.p.unidade) : ''));
+  if(Number(info.p.consumoMedio)>0) partes.push('consumo ' + fmtNumFio(info.p.consumoMedio) + '/mês');
+  return partes.join(' · ');
+}
+function fioRefItemHTML(it){
+  const info = fioInfoItem(it); if(!info) return '';
+  const r = fioResumoItemHTML(info);
+  return r ? `<div class="fio-ref no-print" title="Dados importados do Fiorilli (SIS)">🔄 Fiorilli: ${r}</div>` : '';
+}
+// Compara o preço ofertado com o último preço pago (só quando a unidade é a mesma).
+function fioAlertaPrecoHTML(it, preco){
+  if(!(Number(preco)>0)) return '';
+  const info = fioInfoItem(it); const up = info && fioUltimoPreco(info);
+  if(!up || up.doCadastro) return '';
+  const ui = normTxt(it.unidade), uf = normTxt(up.unidade);
+  if(ui && uf && ui!==uf) return '';
+  const dif = (Number(preco) - up.valor) / up.valor * 100;
+  const tit = `Última compra registrada no Fiorilli: ${fmtMoney4(up.valor)}${up.unidade?'/'+up.unidade:''}${up.data?' em '+fmtDateBR(up.data):''}${up.fornecedor?' — '+up.fornecedor:''}`;
+  if(dif >= 20) return `<div class="fio-alerta alta no-print" title="${esc(tit)}">▲ ${fmtPct(dif)} acima da últ. compra</div>`;
+  if(dif <= -20) return `<div class="fio-alerta baixa no-print" title="${esc(tit)}">▼ ${fmtPct(-dif)} abaixo da últ. compra</div>`;
+  return '';
+}
+function fioMostrarInfoNovoItem(){
+  const box = document.getElementById('itFioInfo'); if(!box) return;
+  const desc = (document.getElementById('itDescricao')||{}).value || '';
+  const info = desc ? fioInfoItem({ descricao: desc }) : null;
+  if(!info){ box.innerHTML = ''; return; }
+  const elU = document.getElementById('itUnidade');
+  if(elU && !elU.value && info.p.unidade) elU.value = info.p.unidade;
+  const meses = Math.max(1, Number(filtroFio.meses)||3);
+  const sug = fioSugestao(info, meses);
+  box.innerHTML = `🔄 <b>Fiorilli:</b> ${fioResumoItemHTML(info) || 'produto encontrado, sem estoque/preço informados'}`
+    + (sug>0 ? ` · <b>sugestão para ${meses} meses: ${fmtNum(sug)}</b> <a href="#" onclick="document.getElementById('itQuantidade').value=${sug};return false;">usar</a>` : '');
+}
+// Entradas do Fiorilli que parecem ser deste pedido: mesmo produto, mesmo fornecedor
+// (quando informado), com data a partir do envio do pedido e nota ainda não lançada aqui.
+function fioEntradasDoPedido(p){
+  if(!FIORILLI.entradas.length) return [];
+  const c = getCotacao(p.cotacaoId); if(!c) return [];
+  const desde = p.rec.dataEnvio || p.dataFechamento || '';
+  const notasJa = (p.rec.entregas||[]).map(e=> fioNorm(e.nota)).filter(Boolean);
+  const out = [];
+  p.linhas.forEach(l=>{
+    if(l.pendente<=0) return;
+    const it = c.itens.find(x=> x.id===l.id) || { descricao:l.descricao, unidade:l.unidade };
+    const info = fioInfoItem(it); if(!info) return;
+    const ents = info.entradas.filter(e=>{
+      if(desde && (e.data||'') < desde) return false;
+      if(e.fornecedor && !nomesFornecedorBatem(e.fornecedor, p.fornecedor)) return false;
+      const d = fioNorm(e.documento);
+      if(d.length>=3 && notasJa.some(n=> n.includes(d))) return false;
+      return true;
+    });
+    if(ents.length) out.push({ linha:l, entradas:ents, qtd: ents.reduce((s,e)=> s + (Number(e.quantidade)||0), 0) });
+  });
+  return out;
+}
+function fioConferenciaPedidoHTML(p){
+  if(!fioTemDados() || !FIORILLI.entradas.length || p.totalPendente<=0) return '';
+  const achados = fioEntradasDoPedido(p);
+  const podeEd = podeEditar('conferenciaPedidos');
+  return `
+    <div class="card no-print">
+      <h2>🔄 Entradas encontradas no Fiorilli para este pedido</h2>
+      ${achados.length===0 ? `<div class="subtitle" style="margin-bottom:0;">Nenhuma entrada de nota no Fiorilli bate com os itens pendentes deste pedido${p.rec.dataEnvio?' desde '+fmtDateBR(p.rec.dataEnvio):''}. Se a nota já foi lançada no Fiorilli, importe as entradas mais recentes em <b>5. Integração Fiorilli</b>.</div>` : `
+      <div class="subtitle">Entradas lançadas no Fiorilli${p.rec.dataEnvio?' desde o envio do pedido ('+fmtDateBR(p.rec.dataEnvio)+')':''} para os itens que ainda estão pendentes. Confira produto, unidade e fornecedor antes de dar baixa.</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Item do pedido</th><th>Data</th><th>Nota</th><th>Fornecedor (Fiorilli)</th><th class="right">Qtd. Fiorilli</th><th>Unid. Fiorilli</th><th class="right">Pendente aqui</th></tr></thead>
+        <tbody>
+          ${achados.map(a=> a.entradas.map((e,k)=>`
+          <tr>
+            <td style="white-space:normal;min-width:200px;">${k===0?`<b>${esc(a.linha.descricao)}</b>`:''}</td>
+            <td>${fmtDateBR(e.data)}</td>
+            <td>${esc(e.documento)||'—'}</td>
+            <td style="white-space:normal;">${esc(e.fornecedor)||'<span class="muted">não informado</span>'}</td>
+            <td class="right">${fmtNumFio(e.quantidade)}</td>
+            <td>${esc(e.unidade)||'—'}</td>
+            <td class="right">${k===0?fmtNum(a.linha.pendente)+' '+esc(a.linha.unidade||''):''}</td>
+          </tr>`).join('')).join('')}
+        </tbody>
+      </table></div>
+      ${podeEd?`<div style="margin-top:10px;"><button class="btn secondary" onclick="fioPreencherBaixa('${p.chave}')">↪ Preencher a baixa com estas entradas</button> <span class="muted" style="font-size:12px;">— só preenche os campos abaixo; a entrega só é gravada quando você clicar em "Registrar entrega".</span></div>`:''}`}
+    </div>`;
+}
+function fioPreencherBaixa(chave){
+  if(semPermissao('conferenciaPedidos')) return;
+  const p = getPedido(chave); if(!p) return;
+  const achados = fioEntradasDoPedido(p);
+  if(!achados.length){ showToast('Nenhuma entrada do Fiorilli para preencher.'); return; }
+  achados.forEach(a=>{ const el = document.getElementById('recQtd_'+a.linha.id); if(el) el.value = a.qtd; });
+  const todas = achados.flatMap(a=> a.entradas);
+  const datas = todas.map(e=> e.data).filter(Boolean).sort();
+  const docs = Array.from(new Set(todas.map(e=> String(e.documento||'').trim()).filter(Boolean)));
+  const elD = document.getElementById('recData'); if(elD && datas.length) elD.value = datas[datas.length-1];
+  const elN = document.getElementById('recNota'); if(elN && docs.length) elN.value = docs.map(d=> /^\d/.test(d) ? 'NF '+d : d).join(', ');
+  const elO = document.getElementById('recObs'); if(elO && !elO.value) elO.value = 'Conferido com as entradas do Fiorilli';
+  if(elD) elD.scrollIntoView({behavior:'smooth', block:'center'});
+  showToast('Campos preenchidos com as entradas do Fiorilli. Confira as quantidades e clique em "Registrar entrega".', 'success');
+}
+
+/* ---- Tela do módulo ---- */
+function viewIntegracaoFiorilli(){
+  if(!fioCarregado) return `<div class="card"><div class="muted">Carregando os dados do Fiorilli…</div></div>`;
+  const temDados = fioTemDados();
+  if(!fioAba) fioAba = temDados ? 'produtos' : 'importar';
+  const ABAS = [
+    {id:'importar', label:'📥 Trazer dados do Fiorilli'},
+    {id:'produtos', label:`📦 Produtos e estoque (${fmtNum(FIORILLI.produtos.length)})`},
+    {id:'entradas', label:`🧾 Entradas de notas (${fmtNum(FIORILLI.entradas.length)})`},
+    {id:'vinculos', label:'🔗 Vínculo com o catálogo'},
+    {id:'lancamentos', label:`🏥 Lançamentos no SIS${sisContarALancar()?' ('+sisContarALancar()+')':''}`},
+    {id:'sobre', label:'ℹ️ Como funciona'},
+  ];
+  const catDe = fioMapaCatalogo();
+  const vinculados = STATE.produtos.filter(cp=> fioInfoProdutoCatalogo(cp)).length;
+  const ult = FIORILLI.importacoes.find(i=> i.tipo!=='limpeza');
+  const datasEnt = FIORILLI.entradas.map(e=> e.data).filter(Boolean).sort();
+  let conteudo = '';
+  if(fioAba==='importar') conteudo = fioAbaImportarHTML();
+  else if(fioAba==='produtos') conteudo = fioAbaProdutosHTML(catDe);
+  else if(fioAba==='entradas') conteudo = fioAbaEntradasHTML();
+  else if(fioAba==='vinculos') conteudo = fioAbaVinculosHTML();
+  else if(fioAba==='lancamentos') conteudo = sisAbaLancamentosHTML();
+  else conteudo = fioAbaSobreHTML();
+  return `
+    ${fioErroCarga ? `<div class="alerta-aviso">⚠️ <b>Os dados do Fiorilli guardados na nuvem não carregaram.</b> Recarregue a página (F5). Enquanto isso, a importação fica bloqueada para não sobrescrever nada.</div>` : ''}
+    <div class="grid cols-4" style="margin-bottom:18px;">
+      <div class="stat"><div class="label">Produtos do Fiorilli</div><div class="value">${fmtNum(FIORILLI.produtos.length)}</div><div class="hint">${fmtNum(FIORILLI.produtos.filter(p=> p.estoque!==undefined && p.estoque!==null).length)} com estoque informado</div></div>
+      <div class="stat"><div class="label">Entradas de notas</div><div class="value">${fmtNum(FIORILLI.entradas.length)}</div><div class="hint">${datasEnt.length ? fmtDateBR(datasEnt[0]) + ' a ' + fmtDateBR(datasEnt[datasEnt.length-1]) : 'nenhuma importada'}</div></div>
+      <div class="stat"><div class="label">Catálogo ligado ao Fiorilli</div><div class="value">${fmtNum(vinculados)} <span style="font-size:13px;color:var(--ink-soft);">de ${fmtNum(STATE.produtos.length)}</span></div><div class="hint">produtos do catálogo encontrados no Fiorilli</div></div>
+      <div class="stat"><div class="label">Última importação</div><div class="value" style="font-size:15px;">${ult ? new Date(ult.em).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'}) : '—'}</div><div class="hint">${ult ? esc(ult.usuario||'') + ' · ' + (ult.tipo==='entradas'?'entradas':'produtos') : 'nenhuma ainda'}</div></div>
+    </div>
+    <div class="card" style="margin-bottom:0;">
+      <div class="tabs" style="margin-bottom:0;">
+        ${ABAS.map(a=>`<div class="tab ${fioAba===a.id?'active':''}" onclick="fioSetAba('${a.id}')">${a.label}</div>`).join('')}
+      </div>
+    </div>
+    ${conteudo}
+  `;
+}
+function fioAbaImportarHTML(){
+  const hist = FIORILLI.importacoes;
+  return `
+    ${fioImport ? fioPainelMapeamentoHTML() : `
+    <div class="card edit-only">
+      <h2>📥 Trazer dados do Fiorilli</h2>
+      <div class="subtitle">O Cotações só <b>lê</b> o que vem do Fiorilli — nada é gravado no Fiorilli.</div>
+      <ol class="fio-passos">
+        <li>No <b>Fiorilli SIS</b> (Farmácia/Almoxarifado), abra a lista ou o relatório que tem os dados:
+          <b>produtos com saldo de estoque</b> (e consumo médio, se tiver) ou <b>entradas de notas</b> de um período.</li>
+        <li>Exporte para <b>Excel</b> (XLS/XLSX) ou <b>CSV/TXT</b> — ou selecione as linhas na tela do Fiorilli e copie com <b>Ctrl+C</b>.</li>
+        <li>Aqui, escolha o arquivo ou cole as linhas. O sistema reconhece sozinho as colunas (código, descrição, unidade, estoque, data, nota, quantidade, valor…) e mostra uma prévia para você conferir antes de importar.</li>
+      </ol>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" onclick="document.getElementById('fioArquivo').click()">📂 Escolher arquivo exportado</button>
+        <button class="btn secondary" onclick="fioAbrirColar()">📋 ${fioColarAberto?'Fechar área de colar':'Colar linhas copiadas do Fiorilli'}</button>
+        <input type="file" id="fioArquivo" accept=".xlsx,.xls,.ods,.csv,.txt,.tsv,.prn" style="display:none;" onchange="fioEscolherArquivo(event)">
+      </div>
+      ${fioColarAberto ? `
+      <div class="field" style="margin-top:12px;">
+        <label>Cole aqui (Ctrl+V) — de preferência com a linha de títulos das colunas</label>
+        <textarea id="fioColarTexto" class="fio-colar" placeholder="Código	Descrição	Unid.	Estoque&#10;00123	DIPIRONA 500MG COMPRIMIDO	CP	1500"></textarea>
+      </div>
+      <div style="margin-top:8px;"><button class="btn" onclick="fioLerColado()">Ler dados colados</button></div>` : ''}
+      <div class="helpbox" style="margin-top:14px;margin-bottom:0;">💡 Pode importar quantas vezes quiser: produtos já existentes são <b>atualizados</b> (estoque, consumo, custo), e entradas de notas já importadas antes são <b>ignoradas</b> — nada fica duplicado. Arquivos em PDF não dão para ler; exporte em Excel ou copie da tela.</div>
+    </div>`}
+    <div class="card">
+      <h2>🗂️ Histórico de importações (${hist.length})</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Data/hora</th><th>Usuário</th><th>Origem</th><th>Tipo</th><th class="right">Linhas lidas</th><th class="right">Novos</th><th class="right">Atualizados</th><th class="right">Repetidas</th><th class="right">Ignoradas</th></tr></thead>
+        <tbody>
+          ${hist.length===0 ? `<tr class="empty-row"><td colspan="9">Nenhuma importação feita ainda.</td></tr>` :
+            hist.map(h=>`<tr>
+              <td>${new Date(h.em).toLocaleString('pt-BR')}</td><td>${esc(h.usuario)||'—'}</td><td style="white-space:normal;">${esc(h.origem)}</td>
+              <td>${h.tipo==='entradas'?'Entradas de notas':(h.tipo==='produtos'?'Produtos e estoque':'—')}</td>
+              <td class="right">${fmtNum(h.lidas)}</td><td class="right">${fmtNum(h.novos)}</td><td class="right">${fmtNum(h.atualizados)}</td>
+              <td class="right">${fmtNum(h.repetidas)}</td><td class="right">${fmtNum(h.ignoradas)}</td></tr>`).join('')}
+        </tbody>
+      </table></div>
+      ${isMaster() && fioTemDados() ? `<div style="margin-top:12px;"><button class="btn ghost small" style="color:var(--red);" onclick="fioApagarDados()">🗑 Apagar a cópia dos dados do Fiorilli</button> <span class="muted" style="font-size:11.5px;">(não mexe no Fiorilli nem nas cotações)</span></div>` : ''}
+    </div>
+  `;
+}
+function fioPainelMapeamentoHTML(){
+  const imp = fioImport, def = FIO_TIPOS[imp.tipo];
+  const cab = imp.aoa[imp.linhaCab] || [];
+  const ncol = Math.max(cab.length, fioLarguraMax(imp.aoa.slice(imp.linhaCab, imp.linhaCab+60)));
+  const opcoes = Array.from({length:ncol}, (_,i)=> ({ i, nome: String(cab[i]===undefined||cab[i]===null?'':cab[i]).trim() || ('Coluna ' + (i+1)) }));
+  const linhas = fioLinhasMapeadas(imp);
+  const validas = linhas.filter(r=> fioLinhaValida(r, imp.tipo)).length;
+  const usados = def.campos.filter(c=> imp.mapa[c]!==undefined);
+  const NUMS = ['estoque','estoqueMinimo','consumoMedio','quantidade'], MONEY = ['valorUnit','valorTotal'], DATAS = ['data'];
+  const fmtCampo = (r, c)=>{
+    const v = r[c];
+    if(NUMS.includes(c)) return fmtNumFio(v);
+    if(MONEY.includes(c)) return (v===null||v===undefined) ? '—' : fmtMoney4(v);
+    if(DATAS.includes(c)) return v ? fmtDateBR(v) : '<span style="color:var(--red);">sem data</span>';
+    if(c==='validade') return /^\d{4}-\d{2}-\d{2}$/.test(v||'') ? fmtDateBR(v) : (esc(v)||'—');
+    return esc(v)||'—';
+  };
+  return `
+    <div class="card edit-only">
+      <h2>🧭 Conferir as colunas — ${esc(imp.origem)}</h2>
+      <div class="subtitle">${fmtNum(imp.aoa.length)} linha(s) lidas. Confira se cada informação está ligada à coluna certa do arquivo; se não estiver, troque na lista. Campos com * são obrigatórios.</div>
+      <div class="formgrid">
+        <div class="field half"><label>O que tem neste arquivo?</label>
+          <select onchange="fioSetTipoImport(this.value)">${Object.keys(FIO_TIPOS).map(t=>`<option value="${t}" ${imp.tipo===t?'selected':''}>${FIO_TIPOS[t].rotulo}</option>`).join('')}</select></div>
+        <div class="field"><label>Linha dos títulos das colunas</label><input type="number" min="1" max="${imp.aoa.length}" value="${imp.linhaCab+1}" onchange="fioSetLinhaCab(this.value)"></div>
+      </div>
+      <div class="fio-map" style="margin-top:12px;">
+        ${def.campos.map(c=>`
+          <div class="field"><label>${esc(FIO_CAMPOS[c].rotulo)}${def.obrig.includes(c)?' *':''}</label>
+            <select onchange="fioSetMapa('${c}', this.value)">
+              <option value="">— não tem / não usar —</option>
+              ${opcoes.map(o=>`<option value="${o.i}" ${imp.mapa[c]===o.i?'selected':''}>${esc(o.nome)}</option>`).join('')}
+            </select></div>`).join('')}
+      </div>
+      <h2 style="margin-top:18px;">Prévia (primeiras linhas, já interpretadas)</h2>
+      <div class="table-wrap" style="max-height:300px;"><table>
+        <thead><tr>${usados.map(c=>`<th>${esc(FIO_CAMPOS[c].rotulo)}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${usados.length===0 ? `<tr class="empty-row"><td>Nenhuma coluna indicada ainda.</td></tr>` :
+            linhas.slice(0,10).map(r=>`<tr>${usados.map(c=>`<td style="white-space:normal;">${fmtCampo(r,c)}</td>`).join('')}</tr>`).join('') || `<tr class="empty-row"><td colspan="${usados.length}">Nenhuma linha de dados abaixo do cabeçalho.</td></tr>`}
+        </tbody>
+      </table></div>
+      <div class="helpbox" style="margin-top:12px;">
+        <b>${fmtNum(validas)}</b> de ${fmtNum(linhas.length)} linha(s) prontas para importar${linhas.length-validas>0 ? ` — as outras ${fmtNum(linhas.length-validas)} serão ignoradas (${imp.tipo==='entradas'?'sem data, sem produto ou sem quantidade/valor':'sem descrição'})` : ''}.
+        Linhas de total e títulos repetidos do relatório já ficam de fora.
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" onclick="fioConfirmarImportacao()" ${validas>0?'':'disabled'}>✅ Importar ${fmtNum(validas)} linha(s)</button>
+        <button class="btn secondary" onclick="fioCancelarImportacao()">Cancelar</button>
+      </div>
+    </div>`;
+}
+function fioAbaProdutosHTML(catDe){
+  if(!FIORILLI.produtos.length) return `<div class="card"><div class="helpbox" style="margin:0;">Nenhum produto do Fiorilli importado ainda. Use a aba <b>📥 Trazer dados do Fiorilli</b>.</div></div>`;
+  const idx = fioIndice();
+  const meses = Math.max(1, Number(filtroFio.meses)||3);
+  const termo = fioNorm(filtroFio.termo);
+  let lista = idx.lista;
+  if(termo) lista = lista.filter(info=> fioNorm(info.p.descricao).includes(termo) || fioNorm(info.p.codigo).includes(termo));
+  if(filtroFio.mostrar==='catalogo') lista = lista.filter(info=> catDe(info));
+  else if(filtroFio.mostrar==='fora') lista = lista.filter(info=> !catDe(info));
+  else if(filtroFio.mostrar==='comprar') lista = lista.filter(info=> (fioSugestao(info, meses)||0) > 0);
+  else if(filtroFio.mostrar==='comEntrada') lista = lista.filter(info=> info.entradas.length>0);
+  const cob = (info)=>{ const c = fioCobertura(info); return c===null ? Infinity : c; };
+  if(filtroFio.ordem==='cobertura') lista = lista.slice().sort((a,b)=> cob(a)-cob(b) || normTxt(a.p.descricao).localeCompare(normTxt(b.p.descricao)));
+  else if(filtroFio.ordem==='sugestao') lista = lista.slice().sort((a,b)=> (fioSugestao(b,meses)||0)-(fioSugestao(a,meses)||0) || normTxt(a.p.descricao).localeCompare(normTxt(b.p.descricao)));
+  else if(filtroFio.ordem==='codigo') lista = lista.slice().sort((a,b)=> String(a.p.codigo||'').localeCompare(String(b.p.codigo||''), 'pt-BR', {numeric:true}));
+  else lista = lista.slice().sort((a,b)=> normTxt(a.p.descricao).localeCompare(normTxt(b.p.descricao)));
+  const total = lista.length, limite = Number(filtroFio.limite)||200;
+  fioListaVisivel = lista.slice(0, limite);
+  const podeCot = podeEditar('novaCotacao'), podeCat = podeEditar('produtos');
+  const abertas = fioCotacoesAbertas();
+  const cotPadrao = (cotacaoAbertaId && abertas.some(c=> c.id===cotacaoAbertaId)) ? cotacaoAbertaId : (abertas[0] ? abertas[0].id : '__nova__');
+  return `
+    <div class="card">
+      <div class="formgrid no-print">
+        <div class="field half"><label>Buscar por código ou descrição</label><input id="fioBuscaProd" value="${esc(filtroFio.termo)}" oninput="fioFiltrar('termo', this.value, 'fioBuscaProd')" placeholder="Ex: dipirona, 00123..."></div>
+        <div class="field"><label>Mostrar</label><select onchange="fioFiltrar('mostrar', this.value)">
+          <option value="" ${!filtroFio.mostrar?'selected':''}>Todos</option>
+          <option value="comprar" ${filtroFio.mostrar==='comprar'?'selected':''}>Só os que precisam comprar</option>
+          <option value="catalogo" ${filtroFio.mostrar==='catalogo'?'selected':''}>Só os que estão no catálogo</option>
+          <option value="fora" ${filtroFio.mostrar==='fora'?'selected':''}>Só os que NÃO estão no catálogo</option>
+          <option value="comEntrada" ${filtroFio.mostrar==='comEntrada'?'selected':''}>Só os que têm entrada de nota</option>
+        </select></div>
+        <div class="field"><label>Ordenar por</label><select onchange="fioFiltrar('ordem', this.value)">
+          <option value="descricao" ${filtroFio.ordem==='descricao'?'selected':''}>Descrição</option>
+          <option value="cobertura" ${filtroFio.ordem==='cobertura'?'selected':''}>Estoque acabando primeiro</option>
+          <option value="sugestao" ${filtroFio.ordem==='sugestao'?'selected':''}>Maior sugestão de compra</option>
+          <option value="codigo" ${filtroFio.ordem==='codigo'?'selected':''}>Código</option>
+        </select></div>
+        <div class="field"><label>Comprar para quantos meses?</label><input type="number" min="1" max="24" step="1" value="${meses}" onchange="fioFiltrar('meses', Math.max(1, Number(this.value)||3))"></div>
+      </div>
+      <div class="fio-acoes no-print">
+        <b><span id="fioSelCount">${fioSelecionados.size}</span> marcado(s)</b>
+        <button class="btn ghost small" onclick="fioSelecionarLista(true)">☑ marcar os ${fmtNum(fioListaVisivel.length)} da lista</button>
+        <button class="btn ghost small" onclick="fioSelecionarLista(false)">☐ desmarcar</button>
+        ${podeCot ? `<span style="margin-left:8px;">Levar para:</span>
+          <select id="fioCotDestino">
+            ${abertas.map(c=>`<option value="${c.id}" ${c.id===cotPadrao?'selected':''}>Cotação ${esc(c.numero)}${c.destino?' — '+esc(c.destino):''} (${c.itens.length} itens)</option>`).join('')}
+            <option value="__nova__" ${cotPadrao==='__nova__'?'selected':''}>+ Nova cotação</option>
+          </select>
+          <button class="btn small" onclick="fioAdicionarSelecionadosCotacao()">➕ Adicionar à cotação</button>` : ''}
+        ${podeCat ? `<button class="btn secondary small" onclick="fioAdicionarSelecionadosCatalogo()">+ Incluir no catálogo</button>` : ''}
+        <button class="btn ghost small" onclick="printReportAsk('fioProdutosPrint','Produtos do Fiorilli')">🖨️ Imprimir</button>
+      </div>
+      <div class="muted no-print" style="font-size:11.5px;margin-bottom:8px;">Sugestão de compra = consumo médio × ${meses} mês(es) − estoque atual. Só aparece para produtos com consumo médio informado. Mostrando ${fmtNum(fioListaVisivel.length)} de ${fmtNum(total)}.</div>
+      <div id="fioProdutosPrint">
+        ${reportBrandRowHTML()}
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th class="no-print"></th><th>Código</th><th>Descrição (Fiorilli)</th><th>Unid.</th><th class="right">Estoque</th><th class="right">Consumo/mês</th>
+            <th class="right">Dura (meses)</th><th class="right">Sugestão ${meses}m</th><th class="right">Últ. compra</th><th>Catálogo</th>
+          </tr></thead>
+          <tbody>
+            ${fioListaVisivel.length===0 ? `<tr class="empty-row"><td colspan="10">Nenhum produto encontrado com esses filtros.</td></tr>` :
+              fioListaVisivel.map((info,i)=>{
+                const p = info.p, cp = catDe(info), up = fioUltimoPreco(info), c = fioCobertura(info), sug = fioSugestao(info, meses);
+                return `<tr>
+                  <td class="no-print"><input type="checkbox" ${fioSelecionados.has(info.chave)?'checked':''} onchange="fioToggleSel(${i}, this.checked)"></td>
+                  <td>${esc(p.codigo)||'—'}</td>
+                  <td style="white-space:normal;min-width:220px;"><b>${esc(p.descricao)}</b></td>
+                  <td>${esc(p.unidade)||'—'}</td>
+                  <td class="right">${fmtNumFio(p.estoque)}</td>
+                  <td class="right">${fmtNumFio(p.consumoMedio)}</td>
+                  <td class="right" style="${c!==null && c<1?'color:var(--red);font-weight:700;':''}">${c===null?'—':c.toLocaleString('pt-BR',{maximumFractionDigits:1})}</td>
+                  <td class="right"><b>${sug===null?'—':fmtNum(sug)}</b></td>
+                  <td class="right" title="${up && !up.doCadastro ? esc((up.fornecedor||'')+(up.documento?' · NF '+up.documento:'')) : (up?'custo informado no cadastro do Fiorilli':'')}">${up ? fmtMoney4(up.valor) + (up.data ? `<div class="muted" style="font-size:10.5px;">${fmtDateBR(up.data)}</div>` : (up.doCadastro?'<div class="muted" style="font-size:10.5px;">custo</div>':'')) : '—'}</td>
+                  <td>${cp ? `<span class="fio-vinc-ok" title="${esc(cp.descricao)}">✓ no catálogo</span>` : '<span class="fio-vinc-nao">—</span>'}</td>
+                </tr>`;
+              }).join('')}
+          </tbody>
+        </table></div>
+      </div>
+      ${total>fioListaVisivel.length ? `<div style="margin-top:10px;" class="no-print"><button class="btn secondary small" onclick="fioFiltrar('limite', ${limite+200})">Mostrar mais 200</button></div>` : ''}
+    </div>`;
+}
+function fioAbaEntradasHTML(){
+  if(!FIORILLI.entradas.length) return `<div class="card"><div class="helpbox" style="margin:0;">Nenhuma entrada de nota importada ainda. No Fiorilli, exporte as entradas de um período (com data, nota, fornecedor, produto, quantidade e valor) e importe na aba <b>📥 Trazer dados do Fiorilli</b>.</div></div>`;
+  const termo = fioNorm(filtroFio.entTermo), forn = fioNorm(filtroFio.entForn);
+  let lista = FIORILLI.entradas.filter(e=>{
+    if(termo && !(fioNorm(e.descricao).includes(termo) || fioNorm(e.codigo).includes(termo) || fioNorm(e.documento).includes(termo))) return false;
+    if(forn && !fioNorm(e.fornecedor).includes(forn)) return false;
+    if(filtroFio.entDe && (e.data||'') < filtroFio.entDe) return false;
+    if(filtroFio.entAte && (e.data||'') > filtroFio.entAte) return false;
+    return true;
+  }).sort((a,b)=>{ const x = a.data||'', y = b.data||''; return x<y ? 1 : (x>y ? -1 : 0); }); // mais recentes primeiro
+  const valorDe = (e)=> Number(e.valorTotal)>0 ? Number(e.valorTotal) : (Number(e.quantidade)||0)*(Number(e.valorUnit)||0);
+  const totalValor = lista.reduce((s,e)=> s + valorDe(e), 0);
+  const limite = Number(filtroFio.entLimite)||300;
+  const vis = lista.slice(0, limite);
+  return `
+    <div class="card">
+      <div class="formgrid no-print">
+        <div class="field"><label>Produto, código ou nota</label><input id="fioBuscaEnt" value="${esc(filtroFio.entTermo)}" oninput="fioFiltrar('entTermo', this.value, 'fioBuscaEnt')" placeholder="Ex: dipirona, 12345"></div>
+        <div class="field"><label>Fornecedor</label><input id="fioBuscaForn" value="${esc(filtroFio.entForn)}" oninput="fioFiltrar('entForn', this.value, 'fioBuscaForn')" placeholder="Nome do fornecedor"></div>
+        <div class="field"><label>De</label><input type="date" value="${esc(filtroFio.entDe)}" onchange="fioFiltrar('entDe', this.value)"></div>
+        <div class="field"><label>Até</label><input type="date" value="${esc(filtroFio.entAte)}" onchange="fioFiltrar('entAte', this.value)"></div>
+      </div>
+      <div class="flexrow" style="margin:10px 0;">
+        <div class="muted" style="font-size:12px;">${fmtNum(lista.length)} entrada(s) · valor total ${fmtMoney(totalValor)}${lista.length>vis.length?` · mostrando as ${fmtNum(vis.length)} mais recentes`:''}</div>
+        <button class="btn ghost small" onclick="printReportAsk('fioEntradasPrint','Entradas de notas — Fiorilli')">🖨️ Imprimir</button>
+      </div>
+      <div id="fioEntradasPrint">
+        ${reportBrandRowHTML()}
+        <div class="table-wrap"><table>
+          <thead><tr><th>Data</th><th>Nota</th><th>Fornecedor</th><th>Código</th><th>Produto</th><th>Unid.</th><th class="right">Qtd.</th><th class="right">Vl. unit.</th><th class="right">Vl. total</th><th>Lote</th></tr></thead>
+          <tbody>
+            ${vis.length===0 ? `<tr class="empty-row"><td colspan="10">Nenhuma entrada com esses filtros.</td></tr>` :
+              vis.map(e=>`<tr>
+                <td>${fmtDateBR(e.data)}</td><td>${esc(e.documento)||'—'}</td><td style="white-space:normal;">${esc(e.fornecedor)||'—'}</td>
+                <td>${esc(e.codigo)||'—'}</td><td style="white-space:normal;min-width:200px;">${esc(e.descricao)}</td><td>${esc(e.unidade)||'—'}</td>
+                <td class="right">${fmtNumFio(e.quantidade)}</td><td class="right">${Number(e.valorUnit)>0?fmtMoney4(e.valorUnit):'—'}</td>
+                <td class="right">${valorDe(e)>0?fmtMoney(valorDe(e)):'—'}</td><td>${esc(e.lote)||'—'}</td></tr>`).join('')}
+          </tbody>
+        </table></div>
+      </div>
+      ${lista.length>vis.length ? `<div style="margin-top:10px;" class="no-print"><button class="btn secondary small" onclick="fioFiltrar('entLimite', ${limite+300})">Mostrar mais 300</button></div>` : ''}
+    </div>`;
+}
+function fioAbaVinculosHTML(){
+  const podeCat = podeEditar('produtos');
+  const termo = fioNorm(filtroFio.vincTermo);
+  const linhas = STATE.produtos.map(cp=>{
+    let status = 'nao', info = null;
+    if(cp.codigoFiorilli){ info = fioInfoPorCodigo(cp.codigoFiorilli); status = info ? 'codigo' : 'codigoAusente'; }
+    else { info = fioTemDados() ? (fioIndice().porDesc.get(fioNorm(cp.descricao)) || null) : null; status = info ? 'nome' : 'nao'; }
+    return { cp, info, status };
+  }).filter(l=>{
+    if(termo && !fioNorm(l.cp.descricao).includes(termo) && !fioNorm(l.cp.codigoFiorilli).includes(termo)) return false;
+    if(filtroFio.vincSo==='sem' && (l.status==='codigo' || l.status==='nome')) return false;
+    return true;
+  }).sort((a,b)=> normTxt(a.cp.descricao).localeCompare(normTxt(b.cp.descricao)));
+  const comCodigo = FIORILLI.produtos.filter(p=> p.codigo).slice(0, 6000);
+  const ST = {
+    codigo: '<span class="fio-vinc-ok">✓ ligado pelo código</span>',
+    nome: '<span class="fio-vinc-ok">≈ ligado pelo nome igual</span>',
+    codigoAusente: '<span class="fio-vinc-aviso">⚠ código não encontrado nos dados importados</span>',
+    nao: '<span class="fio-vinc-nao">✗ não encontrado no Fiorilli</span>',
+  };
+  return `
+    <div class="card">
+      <h2>🔗 Catálogo do Cotações × produtos do Fiorilli</h2>
+      <div class="subtitle">É o vínculo que faz o estoque, o consumo e o último preço pago aparecerem dentro das cotações. Produtos com o <b>mesmo nome</b> já se ligam sozinhos; para os de nome diferente, informe o código do Fiorilli. O vínculo fica guardado no catálogo e nunca é trocado automaticamente.</div>
+      ${podeCat && fioTemDados() ? `<div style="margin-bottom:12px;"><button class="btn secondary small" onclick="fioVincularAutomatico()">🔗 Gravar o código do Fiorilli nos produtos de nome igual</button></div>` : ''}
+      <div class="formgrid no-print" style="margin-bottom:10px;">
+        <div class="field half"><label>Buscar no catálogo</label><input id="fioBuscaVinc" value="${esc(filtroFio.vincTermo)}" oninput="fioFiltrar('vincTermo', this.value, 'fioBuscaVinc')" placeholder="Descrição ou código"></div>
+        <div class="field"><label>Mostrar</label><select onchange="fioFiltrar('vincSo', this.value)">
+          <option value="" ${!filtroFio.vincSo?'selected':''}>Todos</option>
+          <option value="sem" ${filtroFio.vincSo==='sem'?'selected':''}>Só os sem vínculo</option>
+        </select></div>
+      </div>
+      <datalist id="fioListaCodigos">${comCodigo.map(p=>`<option value="${esc(p.codigo)} — ${esc(p.descricao)}">`).join('')}</datalist>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Produto do catálogo</th><th>Unid.</th><th>Situação</th><th>Produto no Fiorilli</th><th>Código no Fiorilli</th></tr></thead>
+        <tbody>
+          ${linhas.length===0 ? `<tr class="empty-row"><td colspan="5">${STATE.produtos.length? 'Nenhum produto com esses filtros.' : 'O catálogo de produtos está vazio.'}</td></tr>` :
+            linhas.map(l=>`<tr>
+              <td style="white-space:normal;min-width:200px;"><b>${esc(l.cp.descricao)}</b></td>
+              <td>${esc(l.cp.unidade)||'—'}</td>
+              <td>${ST[l.status]}</td>
+              <td style="white-space:normal;min-width:180px;">${l.info ? esc(l.info.p.descricao) + `<div class="fio-ref">${fioResumoItemHTML(l.info)}</div>` : '—'}</td>
+              <td>${podeCat ? `<input list="fioListaCodigos" value="${esc(l.cp.codigoFiorilli||'')}" placeholder="${l.status==='nome' && l.info.p.codigo ? esc(l.info.p.codigo) : 'código'}" style="width:150px;padding:5px 7px;border:1px solid var(--line);border-radius:6px;font-family:inherit;" onchange="fioDefinirVinculo('${l.cp.id}', this.value)">` : (esc(l.cp.codigoFiorilli)||'—')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </div>`;
+}
+function fioAbaSobreHTML(){
+  return `
+    <div class="card">
+      <h2>ℹ️ Como o Cotações conversa com o Fiorilli</h2>
+      <ol class="fio-passos">
+        <li><b>O que vem do Fiorilli:</b> cadastro de produtos (código, descrição, unidade), estoque, consumo médio e as entradas de notas (data, nota, fornecedor, quantidade e valor pago).</li>
+        <li><b>Onde isso aparece:</b> na montagem da cotação (estoque, consumo e sugestão de quantidade), no mapa comparativo (último preço pago e aviso quando a oferta está 20% acima ou abaixo dele — só na tela, não sai na impressão), na conferência de pedidos (entradas lançadas no Fiorilli que batem com o pedido) e no catálogo.</li>
+        <li><b>Sentido único:</b> o Cotações só lê. Nada é gravado, alterado ou apagado no Fiorilli.</li>
+        <li><b>Do Cotações para o SIS:</b> na conferência de pedidos, cada entrega gera a <b>folha da requisição de entrada</b> (Por Pedido, Por Produto ou Importar XML) com tudo o que deve ser lançado no SIS — e o pedido também tem a sua folha. Quem lança no SIS é o usuário; depois ele marca como lançada e o Cotações controla o que falta (aba 🏥 Lançamentos no SIS).</li>
+        <li><b>Por que não é uma ligação direta:</b> o banco do Fiorilli fica no servidor da prefeitura, dentro da rede, e só o servidor da Fiorilli fala com ele. O Cotações funciona pela internet. Ligar um no outro direto exigiria abrir o banco de dados de saúde para fora da rede — um risco que não vale a pena — além da autorização da Fiorilli.</li>
+        <li><b>Onde ficam os dados importados:</b> numa área separada na nuvem, ligada ao seu código de acesso. Apagar ou reimportar esses dados não afeta catálogo, fornecedores, cotações ou entregas.</li>
+      </ol>
+      <div class="helpbox" style="margin-bottom:0;">
+        <b>Próximo passo (automático, opcional):</b> se a TI da prefeitura liberar um usuário <b>somente leitura</b> no banco do Fiorilli, um pequeno programa ("ponte") num computador da rede pode gerar esses arquivos sozinho todos os dias, sem ninguém precisar exportar. O Cotações já reconhece as colunas que a ponte gera.
+      </div>
+    </div>`;
+}
+
+/* ============================================================
+   LANÇAMENTOS NO SIS (Fiorilli) — pedido e requisição de entrada
+   ------------------------------------------------------------
+   O Cotações NÃO grava no SIS. Ele monta, com os dados que já tem, a FOLHA
+   do que deve ser lançado lá — o pedido (Pedidos > Incluir > Por Produto) e
+   a requisição de entrada (Por Pedido, Por Produto ou Importar XML) — e
+   controla o que já foi lançado. Quando o fornecedor manda o XML da NF-e, a
+   conferência é feita pelo XML e a entrada sai pelo "Importar XML" do SIS.
+
+   Fluxo na conferência: registrou a entrega -> se o pedido ficou completo,
+   a folha da requisição de entrada é gerada na hora; se ainda falta algo,
+   o sistema pergunta se quer gerar a requisição do que chegou.
+
+   Campos novos, todos opcionais (nada já gravado é alterado):
+     fornecedor.codigoSIS · destino.unidadeSIS · produto.fatorSIS
+     entrega: recebimentoId, emissao, lote, validade, lotes[], chaveNFe
+     rec.sis = { pedido:{numero, lancadoEm, lancadoPor}, entradas:[...] }
+   ============================================================ */
+let sisXmlConf = null;      // XML lido e ainda em conferência: {chave, arquivo, nfe, itens:[...]}
+let sisXmlAplicado = null;  // XML já usado para preencher a baixa (vai junto no "Registrar entrega")
+let sisFolhaAberta = '';    // folha aberta na tela do pedido: 'pedido' ou o id de uma requisição de entrada
+
+function sisCfg(){ return (STATE.config && STATE.config.sis) || {}; }
+function sisAtivo(){ return sisCfg().ativo !== false; }
+function sisNomeUsuario(){ return currentUser ? (currentUser.nome||currentUser.usuario) : ''; }
+function sisFmtCodigo(c){ const s = String(c||'').trim(); const d = s.replace(/\D/g,''); return (d.length===9 && /^[\d.\s-]+$/.test(s)) ? d.slice(0,3)+'.'+d.slice(3,6)+'.'+d.slice(6) : s; }
+// "846" ou "846/2026" -> "0000846/2026" (formato que o SIS mostra e pesquisa)
+function sisFmtNumero(v){ const s = String(v||'').trim(); const m = s.match(/^0*(\d{1,7})(?:\s*\/\s*(\d{4}))?$/); return m ? m[1].padStart(7,'0') + '/' + (m[2] || String(new Date().getFullYear())) : s; }
+function sisData(iso){ return iso ? fmtDateBR(iso) : '____/____/______'; }
+function sisCodigoFornecedor(fid){ const f = STATE.fornecedores.find(x=> x.id===fid); return f && f.codigoSIS ? String(f.codigoSIS).trim() : ''; }
+function sisUnidadeDestino(nome){ const d = STATE.destinos.find(x=> normTxt(x.nome)===normTxt(nome)); return { codigo: d && d.unidadeSIS ? String(d.unidadeSIS).trim() : '', nome: nome||'' }; }
+// Código do produto no SIS e fator de conversão (1 unidade da cotação = fator unidades do SIS).
+function sisProdutoDoItem(it){
+  const cp = STATE.produtos.find(x=> normTxt(x.descricao)===normTxt(it.descricao));
+  let codigo = it.codigoFiorilli || (cp && cp.codigoFiorilli) || '';
+  if(!codigo){ const info = fioInfoItem(it); if(info && info.p.codigo) codigo = info.p.codigo; }
+  const info = codigo ? fioInfoPorCodigo(codigo) : null;
+  const fator = cp && Number(cp.fatorSIS)>0 ? Number(cp.fatorSIS) : 1;
+  return { codigo: sisFmtCodigo(codigo), fator, descricaoSIS: info ? info.p.descricao : '', unidadeSIS: info ? (info.p.unidade||'') : '' };
+}
+// Estrutura do SIS dentro do controle de recebimento: leitura (não altera nada) e escrita (só nas ações).
+function sisLeitura(rec){ const s = (rec && rec.sis) || {}; return { pedido: s.pedido || { numero:'' }, entradas: Array.isArray(s.entradas) ? s.entradas : [] }; }
+function sisDoRec(rec){
+  if(!rec.sis || typeof rec.sis!=='object') rec.sis = {};
+  if(!rec.sis.pedido || typeof rec.sis.pedido!=='object') rec.sis.pedido = { numero:'', lancadoEm:'', lancadoPor:'' };
+  if(!Array.isArray(rec.sis.entradas)) rec.sis.entradas = [];
+  return rec.sis;
+}
+function sisLinhasPedido(p){
+  const c = getCotacao(p.cotacaoId);
+  return p.linhas.map(l=>{
+    const it = (c && c.itens.find(x=> x.id===l.id)) || { descricao:l.descricao, unidade:l.unidade };
+    const sp = sisProdutoDoItem(it);
+    return Object.assign({}, l, sp, { qtdSIS: l.pedida*sp.fator, unitSIS: sp.fator>0 ? l.unit/sp.fator : l.unit });
+  });
+}
+function sisDadosPedido(p){
+  const forn = sisCodigoFornecedor(p.fid);
+  const unid = sisUnidadeDestino(p.destino);
+  const linhas = sisLinhasPedido(p);
+  const faltas = [];
+  if(!forn) faltas.push(`o código do fornecedor <b>${esc(p.fornecedor)}</b> no SIS (Cadastros → Fornecedores)`);
+  if(!unid.codigo) faltas.push(p.destino ? `a unidade no SIS do destino <b>${esc(p.destino)}</b> (Cadastros → Destinos/Setores)` : 'o destino/setor da cotação');
+  const semCod = linhas.filter(l=> !l.codigo);
+  if(semCod.length) faltas.push(`o código no Fiorilli de ${semCod.length} produto(s): ${semCod.slice(0,4).map(l=> '<b>'+esc(l.descricao)+'</b>').join('; ')}${semCod.length>4?'…':''} (Catálogo de Produtos ou 5. Integração Fiorilli → Vínculo)`);
+  return { forn, unid, linhas, faltas, descricao: 'COTAÇÃO Nº ' + p.numero };
+}
+
+/* ---- Entregas e requisições de entrada ---- */
+function sisEntregasSemRequisicao(rec){
+  const usados = new Set();
+  sisLeitura(rec).entradas.forEach(en=> (en.recebimentoIds||[]).forEach(id=> usados.add(id)));
+  const grupos = {};
+  (rec.entregas||[]).forEach(e=>{
+    if(!e.recebimentoId || usados.has(e.recebimentoId)) return; // entregas antigas (sem recebimentoId) ficam de fora
+    (grupos[e.recebimentoId] = grupos[e.recebimentoId] || []).push(e);
+  });
+  return grupos;
+}
+function sisCriarEntrada(c, fid, recebimentoId, opcoes){
+  const rec = getRecebimento(c, fid);
+  const entregas = (rec.entregas||[]).filter(e=> e.recebimentoId===recebimentoId);
+  if(!entregas.length) return null;
+  const s = sisDoRec(rec);
+  const e0 = entregas[0];
+  const itens = entregas.map(e=>{
+    const it = c.itens.find(x=> x.id===e.itemId) || { descricao:'(item removido da cotação)', unidade:'' };
+    const sp = sisProdutoDoItem(it);
+    const lotes = (Array.isArray(e.lotes) && e.lotes.length)
+      ? e.lotes.map(l=> ({ lote:l.lote||'', validade:l.validade||'', qtd:Number(l.qtd)||0 }))
+      : [{ lote:e.lote||'', validade:e.validade||'', qtd:Number(e.quantidade)||0 }];
+    return { itemId:e.itemId, descricao:it.descricao, unidade:it.unidade||'', qtd:Number(e.quantidade)||0,
+             valorUnit:Number((it.precos||{})[fid])||0, codigo:sp.codigo, fator:sp.fator, descricaoSIS:sp.descricaoSIS, unidadeSIS:sp.unidadeSIS, lotes };
+  });
+  const ent = { id: uid(), recebimentoIds:[recebimentoId], criadoEm:new Date().toISOString(), criadoPor:sisNomeUsuario(),
+                data:e0.data||hojeISO(), nota:e0.nota||'', emissao:e0.emissao||'', chaveNFe:e0.chaveNFe||'',
+                viaXml: !!(opcoes && opcoes.xmlItens && opcoes.xmlItens.length), xmlItens:(opcoes && opcoes.xmlItens) || [],
+                parcial: !!(opcoes && opcoes.parcial), itens, status:'a_lancar', numeroSIS:'', lancadaEm:'', lancadaPor:'' };
+  s.entradas.push(ent);
+  return ent;
+}
+// Chamado logo depois de "Registrar entrega": completo -> gera a requisição; parcial -> pergunta.
+function sisAposEntrega(chave, recebimentoId, xmlItens){
+  const p = getPedido(chave); if(!p) return false;
+  const c = getCotacao(p.cotacaoId); if(!c) return false;
+  const completo = p.totalPendente===0;
+  if(!completo && !confirm(`Entrega registrada. Ainda faltam ${fmtNum(p.totalPendente)} unidade(s) em ${p.itensPendentes} item(ns) deste pedido.\n\nDeseja realizar a REQUISIÇÃO DE ENTRADA no Fiorilli (SIS) do que chegou agora?`)){
+    showToast('Entrega registrada. A requisição de entrada no Fiorilli ficou para depois — gere quando quiser no quadro "Lançamentos no Fiorilli (SIS)" desta tela.', 'warning');
+    return true;
+  }
+  const ent = sisCriarEntrada(c, p.fid, recebimentoId, { parcial: !completo, xmlItens });
+  if(!ent) return false;
+  saveState(true);
+  sisFolhaAberta = ent.id;
+  render();
+  setTimeout(()=>{ const el = document.getElementById('sisFolha_'+ent.id); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 120);
+  showToast(completo
+    ? '✅ Pedido entregue por completo. A requisição de entrada para o Fiorilli já está pronta abaixo — lance no SIS e depois clique em "Marcar como lançada".'
+    : 'Requisição de entrada do que chegou pronta abaixo — lance no SIS e depois clique em "Marcar como lançada".', 'success');
+  return true;
+}
+function sisGerarEntradaPendente(chave, recebimentoId){
+  if(semPermissao('conferenciaPedidos')) return;
+  const p = getPedido(chave); if(!p) return;
+  const c = getCotacao(p.cotacaoId);
+  const ent = sisCriarEntrada(c, p.fid, recebimentoId, { parcial: p.totalPendente>0 });
+  if(!ent) return;
+  saveState(true);
+  sisFolhaAberta = ent.id;
+  render();
+  setTimeout(()=>{ const el = document.getElementById('sisFolha_'+ent.id); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 120);
+  showToast('Requisição de entrada gerada. Lance no SIS e depois marque como lançada.', 'success');
+}
+function sisAcharEntrada(chave, entId){
+  const p = getPedido(chave); if(!p) return {};
+  const c = getCotacao(p.cotacaoId); const rec = getRecebimento(c, p.fid);
+  const s = sisDoRec(rec);
+  return { p, s, en: s.entradas.find(x=> x.id===entId) };
+}
+function sisMarcarEntradaLancada(chave, entId){
+  if(semPermissao('conferenciaPedidos')) return;
+  const { en } = sisAcharEntrada(chave, entId); if(!en) return;
+  const num = prompt('Número da requisição de entrada gerada no SIS (ex.: 3879 ou 0003879/2026).\nPode deixar em branco se não tiver anotado.', en.numeroSIS||'');
+  if(num===null) return;
+  en.status = 'lancada'; en.numeroSIS = num.trim() ? sisFmtNumero(num) : '';
+  en.lancadaEm = new Date().toISOString(); en.lancadaPor = sisNomeUsuario();
+  saveState(true); render();
+  showToast('Requisição de entrada marcada como lançada no SIS' + (en.numeroSIS ? ' (nº ' + en.numeroSIS + ')' : '') + '.', 'success');
+}
+function sisReabrirEntrada(chave, entId){
+  if(!isMaster()){ showToast('Apenas o administrador pode desfazer a marcação de lançada.'); return; }
+  const { en } = sisAcharEntrada(chave, entId); if(!en) return;
+  if(!confirm('Voltar esta requisição para "a lançar"? Use só se ela NÃO foi gravada no SIS.')) return;
+  en.status = 'a_lancar'; en.lancadaEm = ''; en.lancadaPor = '';
+  saveState(true); render();
+}
+function sisDescartarEntrada(chave, entId){
+  if(semPermissao('conferenciaPedidos')) return;
+  const { s, en } = sisAcharEntrada(chave, entId); if(!en) return;
+  if(en.status==='lancada'){ showToast('Esta requisição já foi marcada como lançada no SIS — não pode ser descartada.'); return; }
+  if(!confirm('Descartar esta folha de requisição de entrada? A entrega continua registrada aqui e pode gerar uma nova folha depois.')) return;
+  s.entradas = s.entradas.filter(x=> x.id!==entId);
+  if(sisFolhaAberta===entId) sisFolhaAberta = '';
+  saveState(true); render();
+}
+function sisGravarNumeroPedido(chave){
+  if(semPermissao('conferenciaPedidos')) return;
+  const p = getPedido(chave); if(!p) return;
+  const el = document.getElementById('sisNumPedido');
+  const v = el ? sisFmtNumero(el.value) : '';
+  const s = sisDoRec(getRecebimento(getCotacao(p.cotacaoId), p.fid));
+  s.pedido.numero = v; s.pedido.lancadoEm = v ? new Date().toISOString() : ''; s.pedido.lancadoPor = v ? sisNomeUsuario() : '';
+  saveState(true); render();
+  showToast(v ? `Pedido nº ${v} do SIS gravado. As próximas requisições de entrada deste pedido saem "Por Pedido".` : 'Número do pedido no SIS removido.', 'success');
+}
+function sisAbrirFolha(id){ sisFolhaAberta = (sisFolhaAberta===id) ? '' : id; render(); if(sisFolhaAberta){ setTimeout(()=>{ const el = document.getElementById('sisFolha_'+id); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 80); } }
+
+/* ---- XML da NF-e: leitura e conferência com o pedido ---- */
+function sisParseNFe(txt){
+  const doc = new DOMParser().parseFromString(txt, 'application/xml');
+  if(doc.getElementsByTagName('parsererror').length) throw new Error('Este arquivo não é um XML válido.');
+  const els = (el, tag)=> el ? Array.from(el.getElementsByTagNameNS('*', tag)) : [];
+  const um = (el, tag)=>{ const x = els(el, tag)[0]; return x ? x.textContent.trim() : ''; };
+  const inf = els(doc, 'infNFe')[0];
+  if(!inf) throw new Error('Este XML não é de uma Nota Fiscal Eletrônica (NF-e).');
+  const ide = els(inf,'ide')[0], emit = els(inf,'emit')[0], dest = els(inf,'dest')[0];
+  const itens = els(inf,'det').map(det=>{
+    const prod = els(det,'prod')[0];
+    return {
+      n: det.getAttribute('nItem')||'', cProd: um(prod,'cProd'), ean: um(prod,'cEAN'), xProd: um(prod,'xProd'),
+      uCom: um(prod,'uCom'), qCom: Number(um(prod,'qCom'))||0, vUnCom: Number(um(prod,'vUnCom'))||0, vProd: Number(um(prod,'vProd'))||0,
+      anvisa: um(prod,'cProdANVISA'),
+      lotes: els(prod,'rastro').map(r=> ({ lote: um(r,'nLote'), qtd: Number(um(r,'qLote'))||0, validade: um(r,'dVal').slice(0,10) }))
+    };
+  });
+  return {
+    chave: (inf.getAttribute('Id')||'').replace(/^NFe/,'') || um(doc,'chNFe'),
+    numero: um(ide,'nNF'), serie: um(ide,'serie'), emissao: (um(ide,'dhEmi') || um(ide,'dEmi')).slice(0,10),
+    emitente: { cnpj: um(emit,'CNPJ') || um(emit,'CPF'), nome: um(emit,'xNome') },
+    destinatario: { cnpj: um(dest,'CNPJ') || um(dest,'CPF'), nome: um(dest,'xNome') },
+    valorTotal: Number(um(inf,'vNF'))||0, itens
+  };
+}
+function sisTokens(s){ return fioNorm(s).split(' ').filter(t=> t.length>=2 && !['de','da','do','das','dos','com','sem','em','para','por'].includes(t)); }
+function sisSimilaridade(a, b){
+  const A = new Set(sisTokens(a)), B = new Set(sisTokens(b));
+  if(!A.size || !B.size) return 0;
+  let inter = 0; A.forEach(t=>{ if(B.has(t)) inter++; });
+  return 2*inter / (A.size + B.size);
+}
+// Liga cada item da nota ao item do pedido de nome mais parecido (o usuário pode trocar).
+function sisCasarXmlPedido(nfe, p){
+  const linhas = sisLinhasPedido(p);
+  const pares = [];
+  nfe.itens.forEach((x,i)=> linhas.forEach(l=>{
+    const sc = Math.max(sisSimilaridade(x.xProd, l.descricao), l.descricaoSIS ? sisSimilaridade(x.xProd, l.descricaoSIS) : 0);
+    if(sc>=0.3) pares.push({ i, id:l.id, sc });
+  }));
+  pares.sort((a,b)=> b.sc - a.sc);
+  const escolha = {}, usados = new Set();
+  pares.forEach(pr=>{ if(escolha[pr.i]!==undefined || usados.has(pr.id)) return; escolha[pr.i] = pr.id; usados.add(pr.id); });
+  return nfe.itens.map((x,i)=> Object.assign({}, x, { linhaId: escolha[i] || '' }));
+}
+function sisLerArquivoXml(event, chave){
+  if(semPermissao('conferenciaPedidos')){ event.target.value=''; return; }
+  const file = event.target.files[0]; event.target.value = '';
+  if(!file) return;
+  const r = new FileReader();
+  r.onerror = ()=> showToast('Não foi possível ler o arquivo.', 'error');
+  r.onload = (e)=>{
+    try{
+      const nfe = sisParseNFe(fioTextoDeBuffer(new Uint8Array(e.target.result)));
+      const p = getPedido(chave); if(!p) return;
+      sisXmlConf = { chave, arquivo: file.name, nfe, itens: sisCasarXmlPedido(nfe, p) };
+      render();
+      setTimeout(()=>{ const el = document.getElementById('sisXmlPainel'); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 80);
+    }catch(err){ showToast(err.message || 'Não foi possível ler este XML.', 'error'); }
+  };
+  r.readAsArrayBuffer(file);
+}
+function sisXmlCasar(i, linhaId){ if(sisXmlConf && sisXmlConf.itens[i]){ sisXmlConf.itens[i].linhaId = linhaId; render(); } }
+function sisXmlFechar(){ sisXmlConf = null; render(); }
+function sisXmlPreencher(chave){
+  if(semPermissao('conferenciaPedidos')) return;
+  if(!sisXmlConf || sisXmlConf.chave!==chave) return;
+  const p = getPedido(chave); if(!p) return;
+  const nfe = sisXmlConf.nfe;
+  const porLinha = {};
+  sisXmlConf.itens.forEach(x=>{
+    if(!x.linhaId) return;
+    const g = porLinha[x.linhaId] = porLinha[x.linhaId] || { qtd:0, lotes:[] };
+    g.qtd += x.qCom;
+    if(x.lotes.length) x.lotes.forEach(l=> g.lotes.push({ lote:l.lote, validade:l.validade, qtd:l.qtd }));
+    else g.lotes.push({ lote:'', validade:'', qtd:x.qCom });
+  });
+  let preenchidos = 0;
+  p.linhas.forEach(l=>{
+    const g = porLinha[l.id];
+    const elQ = document.getElementById('recQtd_'+l.id), elL = document.getElementById('recLote_'+l.id), elV = document.getElementById('recVal_'+l.id);
+    if(!g){ if(elQ) elQ.value = ''; return; }
+    if(elQ){ elQ.value = g.qtd; preenchidos++; }
+    const comLote = g.lotes.filter(x=> x.lote);
+    if(elL) elL.value = comLote.map(x=> x.lote).join(' / ');
+    const validades = comLote.map(x=> x.validade).filter(Boolean).sort();
+    if(elV) elV.value = validades[0] || '';
+  });
+  const set = (id, v)=>{ const el = document.getElementById(id); if(el && v) el.value = v; };
+  set('recNota', 'NF ' + nfe.numero + (nfe.serie ? ' série ' + nfe.serie : ''));
+  set('recEmissao', nfe.emissao);
+  const elO = document.getElementById('recObs'); if(elO && !elO.value) elO.value = 'Conferido pelo XML da NF-e';
+  // Guarda os lotes completos e a chave da nota para irem junto no "Registrar entrega".
+  sisXmlAplicado = {
+    chave, chaveNFe: nfe.chave, lotesPorItem: {},
+    xmlItens: sisXmlConf.itens.map(x=>{
+      const l = x.linhaId ? sisLinhasPedido(p).find(y=> y.id===x.linhaId) : null;
+      return { n:x.n, cProd:x.cProd, xProd:x.xProd, uCom:x.uCom, qCom:x.qCom, lotes:x.lotes, codigoSIS: l ? l.codigo : '', descricaoSIS: l ? (l.descricaoSIS || l.descricao) : '' };
+    })
+  };
+  Object.keys(porLinha).forEach(id=>{ sisXmlAplicado.lotesPorItem[id] = porLinha[id].lotes.filter(x=> x.lote); });
+  const elD = document.getElementById('recData'); if(elD) elD.scrollIntoView({behavior:'smooth', block:'center'});
+  showToast(`Baixa preenchida com a NF ${nfe.numero}: ${preenchidos} item(ns). Confira e clique em "Registrar entrega".`, 'success');
+}
+function sisXmlPainelHTML(p){
+  if(!sisXmlConf || sisXmlConf.chave!==p.chave) return '';
+  const nfe = sisXmlConf.nfe;
+  const linhas = sisLinhasPedido(p);
+  const avisos = [];
+  const f = STATE.fornecedores.find(x=> x.id===p.fid);
+  const dig = (s)=> String(s||'').replace(/\D/g,'');
+  if(f && dig(f.cnpj) && dig(nfe.emitente.cnpj) && dig(f.cnpj)!==dig(nfe.emitente.cnpj)) avisos.push(`O CNPJ do emitente da nota (${esc(nfe.emitente.cnpj)} — ${esc(nfe.emitente.nome)}) é diferente do cadastrado para <b>${esc(p.fornecedor)}</b>.`);
+  else if(f && !dig(f.cnpj) && !nomesFornecedorBatem(nfe.emitente.nome, p.fornecedor)) avisos.push(`O emitente da nota (<b>${esc(nfe.emitente.nome)}</b>) não parece ser <b>${esc(p.fornecedor)}</b>.`);
+  const cnpjEnt = dig(STATE.entidade && STATE.entidade.cnpj);
+  if(cnpjEnt && dig(nfe.destinatario.cnpj) && cnpjEnt!==dig(nfe.destinatario.cnpj)) avisos.push(`A nota foi emitida para outro destinatário: ${esc(nfe.destinatario.nome)} (${esc(nfe.destinatario.cnpj)}).`);
+  if((p.rec.entregas||[]).some(e=> (nfe.chave && e.chaveNFe===nfe.chave) || (nfe.numero && fioNorm(e.nota).split(' ').includes(String(Number(nfe.numero)))))) avisos.push(`A NF ${esc(nfe.numero)} já tem entrega registrada neste pedido — confira para não lançar duas vezes.`);
+  const semPar = sisXmlConf.itens.filter(x=> !x.linhaId).length;
+  if(semPar) avisos.push(`${semPar} item(ns) da nota não foram ligados a nenhum item do pedido. Escolha na coluna "Item do pedido" ou deixe "não é deste pedido".`);
+  const naoVieram = linhas.filter(l=> l.pendente>0 && !sisXmlConf.itens.some(x=> x.linhaId===l.id));
+  return `
+    <div class="card no-print" id="sisXmlPainel" style="border-left:4px solid var(--teal);">
+      <div class="flexrow"><h2 style="margin:0;">📄 Conferência pela NF-e nº ${esc(nfe.numero)}${nfe.serie?' (série '+esc(nfe.serie)+')':''}</h2><button class="btn ghost small" onclick="sisXmlFechar()">✕ fechar</button></div>
+      <div class="conf-kv" style="margin:10px 0 12px;">
+        <div><span class="k">Emitente</span><b class="v" style="font-size:12.5px;">${esc(nfe.emitente.nome)}</b></div>
+        <div><span class="k">Emissão</span><b class="v">${fmtDateBR(nfe.emissao)}</b></div>
+        <div><span class="k">Valor da nota</span><b class="v">${fmtMoney(nfe.valorTotal)}</b></div>
+        <div><span class="k">Itens na nota</span><b class="v">${nfe.itens.length}</b></div>
+      </div>
+      ${avisos.map(a=> `<div class="alerta-aviso" style="margin-bottom:8px;">⚠️ ${a}</div>`).join('')}
+      <div class="table-wrap"><table>
+        <thead><tr><th>#</th><th>Produto na nota</th><th class="right">Qtd. nota</th><th class="right">Vl. unit. nota</th><th>Lote / Validade</th><th>Item do pedido</th><th>Conferência</th></tr></thead>
+        <tbody>
+          ${sisXmlConf.itens.map((x,i)=>{
+            const l = linhas.find(y=> y.id===x.linhaId);
+            const obs = [];
+            if(l){
+              const mesmoItem = sisXmlConf.itens.filter(y=> y.linhaId===l.id).reduce((s,y)=> s+y.qCom, 0);
+              if(mesmoItem > l.pendente) obs.push(`<span style="color:var(--red);font-weight:700;">${fmtNumFio(mesmoItem)} na nota, só ${fmtNum(l.pendente)} pendente(s)</span>`);
+              else if(mesmoItem < l.pendente) obs.push(`<span style="color:#8a5a1c;font-weight:700;">parcial: ${fmtNumFio(mesmoItem)} de ${fmtNum(l.pendente)}</span>`);
+              else obs.push('<span class="fio-vinc-ok">✓ quantidade confere</span>');
+              if(x.vUnCom > l.unit*1.005) obs.push(`<span style="color:var(--red);font-weight:700;">preço acima do cotado (${fmtMoney4(l.unit)})</span>`);
+              if(normTxt(x.uCom) && normTxt(l.unidade) && normTxt(x.uCom)!==normTxt(l.unidade)) obs.push(`<span style="color:#8a5a1c;">unidade da nota ${esc(x.uCom)} × pedido ${esc(l.unidade)}</span>`);
+              if(!x.lotes.length) obs.push('<span style="color:#8a5a1c;">nota sem lote/validade</span>');
+            }
+            return `<tr>
+              <td>${esc(x.n)}</td>
+              <td style="white-space:normal;min-width:200px;"><b>${esc(x.xProd)}</b><div class="fio-ref">cód. fornecedor ${esc(x.cProd)}${x.anvisa?' · ANVISA '+esc(x.anvisa):''}</div></td>
+              <td class="right">${fmtNumFio(x.qCom)} ${esc(x.uCom)}</td>
+              <td class="right">${fmtMoney4(x.vUnCom)}</td>
+              <td style="white-space:normal;">${x.lotes.length ? x.lotes.map(lo=> `${esc(lo.lote)}${lo.validade?' · '+fmtDateBR(lo.validade):''}${x.lotes.length>1?' ('+fmtNumFio(lo.qtd)+')':''}`).join('<br>') : '—'}</td>
+              <td><select onchange="sisXmlCasar(${i}, this.value)" style="max-width:260px;padding:5px 6px;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:12px;">
+                <option value="">— não é deste pedido —</option>
+                ${linhas.map(y=> `<option value="${y.id}" ${x.linhaId===y.id?'selected':''}>${esc(y.descricao)} (pend. ${fmtNum(y.pendente)})</option>`).join('')}
+              </select></td>
+              <td style="white-space:normal;font-size:11.5px;">${l ? obs.join('<br>') : '<span class="muted">não entra na baixa</span>'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
+      ${naoVieram.length ? `<div class="alerta-aviso" style="margin:10px 0 0;">📦 <b>Não vieram nesta nota:</b> ${naoVieram.map(l=> esc(l.descricao) + ' (' + fmtNum(l.pendente) + ' ' + esc(l.unidade||'') + ')').join('; ')}.</div>` : `<div class="alerta-ok" style="margin:10px 0 0;">✅ Todos os itens pendentes do pedido estão nesta nota.</div>`}
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" onclick="sisXmlPreencher('${p.chave}')">↪ Preencher a baixa com esta nota</button>
+        <span class="muted" style="font-size:12px;align-self:center;">Só preenche os campos abaixo — a entrega é gravada quando você clicar em "Registrar entrega".</span>
+      </div>
+    </div>`;
+}
+
+/* ---- Folhas de lançamento (para digitar/importar no SIS) ---- */
+function sisFolhaPedidoHTML(p, d){
+  const total = d.linhas.reduce((s,l)=> s + l.qtdSIS*l.unitSIS, 0);
+  return `
+    <div class="card" id="sisFolha_pedido">
+      <div class="flexrow"><h2 style="margin:0;">📄 Folha do PEDIDO para o SIS</h2>
+        <button class="btn ghost small" onclick="printReportAsk('sisFolhaPrint_pedido','Folha do Pedido — SIS')">🖨️ Imprimir</button></div>
+      <div id="sisFolhaPrint_pedido" style="margin-top:10px;">
+        ${reportHeaderHTML({numero:p.numero, solicitante:p.solicitante, destino:p.destino, data:fmtDateBR(p.dataFechamento), status:'FECHADA', rotulo:'Folha do Pedido no SIS — Cotação'})}
+        <ol class="fio-passos">
+          <li>SIS Farmácia → <b>Pedidos</b> → <b>Incluir</b> → <b>Por Produto</b>.</li>
+          <li><b>Fornecedor:</b> ${d.forn ? `<b>${esc(d.forn)}</b>` : '<b style="color:var(--red);">______ (código não cadastrado)</b>'} — ${esc(p.fornecedor)}</li>
+          <li><b>Unidade de Destino:</b> ${d.unid.codigo ? `<b>${esc(d.unid.codigo)}</b>` : '<b style="color:var(--red);">______ (código não cadastrado)</b>'} — ${esc(p.destino||'')}</li>
+          <li><b>Descrição do Pedido:</b> ${esc(d.descricao)} · Empenho / Contrato / Proc. Licitatório / Pregão: se houver.</li>
+          <li>Nos itens, digite o <b>Código</b> (F2 pesquisa), a <b>Qtd. Solicitada</b> e o <b>Valor Unitário</b> abaixo. Status: <b>Concluído</b>. Clique em <b>OK</b> e anote o número do pedido.</li>
+        </ol>
+        <div class="table-wrap" style="max-height:none;"><table>
+          <thead><tr><th>Item</th><th>Código SIS</th><th>Produto</th><th>Unid. SIS</th><th class="right">Qtd. Solicitada</th><th class="right">Valor Unitário</th><th class="right">Total</th></tr></thead>
+          <tbody>
+            ${d.linhas.map((l,i)=> `<tr>
+              <td>${i+1}</td>
+              <td><b>${l.codigo ? esc(l.codigo) : '<span style="color:var(--red);">sem código</span>'}</b></td>
+              <td style="white-space:normal;min-width:200px;">${esc(l.descricaoSIS || l.descricao)}${l.descricaoSIS && normTxt(l.descricaoSIS)!==normTxt(l.descricao) ? `<div class="fio-ref">na cotação: ${esc(l.descricao)}</div>` : ''}</td>
+              <td>${esc(l.unidadeSIS || (l.fator===1 ? (l.unidade||'') : ''))||'<span class="muted">unid. do SIS</span>'}</td>
+              <td class="right"><b>${fmtNumFio(l.qtdSIS)}</b>${l.fator!==1 ? `<div class="fio-ref">${fmtNum(l.pedida)} ${esc(l.unidade||'')} × ${fmtNumFio(l.fator)}</div>` : ''}</td>
+              <td class="right">${fmtMoney4(l.unitSIS)}</td>
+              <td class="right">${fmtMoney(l.qtdSIS*l.unitSIS)}</td></tr>`).join('')}
+          </tbody>
+          <tfoot><tr><td colspan="6">TOTAL</td><td class="right">${fmtMoney(total)}</td></tr></tfoot>
+        </table></div>
+        <div style="margin-top:16px;font-size:12.5px;">Nº do pedido gerado no SIS: ____________________ &nbsp; Lançado por: ______________________ &nbsp; Data: ____/____/______</div>
+      </div>
+    </div>`;
+}
+function sisFolhaEntradaHTML(p, en, numeroPedido){
+  const cfg = sisCfg();
+  const forn = sisCodigoFornecedor(p.fid);
+  const unid = sisUnidadeDestino(p.destino);
+  const tipo = `${esc(cfg.tipoEntradaCodigo||'4')} – ${esc(cfg.tipoEntradaNome||'COMPRA DE FORNECEDOR')}`;
+  const linhasLote = [];
+  en.itens.forEach(it=> (it.lotes && it.lotes.length ? it.lotes : [{lote:'', validade:'', qtd:it.qtd}]).forEach(lo=> linhasLote.push({ it, lo })));
+  const recebidos = new Set(en.itens.map(i=> i.itemId));
+  const naoVieram = sisLinhasPedido(p).filter(l=> !recebidos.has(l.id));
+  const unidAviso = unid.codigo ? `Antes de começar, confira se o SIS está na unidade <b>${esc(unid.codigo)}</b> (${esc(unid.nome)}) — a entrada cai no estoque da unidade em que o SIS está.` : `Antes de começar, confira se o SIS está na unidade do destino <b>${esc(p.destino||'')}</b> — a entrada cai no estoque da unidade em que o SIS está.`;
+  let passos = '';
+  if(en.viaXml){
+    passos = `
+      <li>SIS Farmácia → <b>Requisições de Entrada</b> → <b>Importar XML</b> → em "Arquivo XML" escolha o XML da <b>${esc(en.nota)}</b>${en.chaveNFe?` (chave ${esc(en.chaveNFe)})`:''}.</li>
+      <li><b>Data no SIS:</b> ${sisData(en.data)} · <b>Tipo de Requisição:</b> ${tipo}.</li>
+      <li><b>Fornecedor SIS:</b> ${forn ? `<b>${esc(forn)}</b>` : '<b style="color:var(--red);">______</b>'} — ${esc(p.fornecedor)}. ⚠️ Não deixe em branco: em branco o SIS cadastra um fornecedor NOVO.</li>
+      <li>Na grade de itens, preencha a coluna <b>"F2 - Cód. SIS"</b> de cada linha conforme a tabela. ⚠️ Linha com Cód. SIS em branco vira um produto NOVO no SIS.</li>
+      <li>Confira lote e validade, clique em <b>Importar</b> e anote o número da requisição.</li>`;
+  } else if(numeroPedido){
+    passos = `
+      <li>SIS Farmácia → <b>Requisições de Entrada</b> → <b>Incluir</b> → <b>Por Pedido</b> → Pesquisa por <b>Número</b>: <b>${esc(numeroPedido)}</b> → Pesquisar → <b>OK</b>.</li>
+      <li><b>Data:</b> ${sisData(en.data)} · <b>Nota Fiscal:</b> ${esc(en.nota)||'________'} · <b>Emissão:</b> ${sisData(en.emissao)} · <b>Tipo:</b> ${tipo}. O fornecedor já vem do pedido (${forn?esc(forn)+' — ':''}${esc(p.fornecedor)}).</li>
+      <li>Nos itens, confira a <b>Qtde.</b> e digite <b>Lote</b> (F4) e <b>Validade</b> como na tabela.${naoVieram.length ? ' Itens do pedido que <b>não vieram</b> nesta entrega: exclua a linha com <b>F8</b>.' : ''}</li>
+      <li>Clique em <b>OK</b> e anote o número da requisição.</li>`;
+  } else {
+    passos = `
+      <li>SIS Farmácia → <b>Requisições de Entrada</b> → <b>Incluir</b> → <b>Por Produto</b>. <span class="muted">(Se o pedido já estiver lançado no SIS, grave o número dele acima: a folha passa a ser "Por Pedido".)</span></li>
+      <li><b>Data:</b> ${sisData(en.data)} · <b>Nota Fiscal:</b> ${esc(en.nota)||'________'} · <b>Emissão:</b> ${sisData(en.emissao)} · <b>Tipo:</b> ${tipo} · <b>Fornecedor:</b> ${forn ? `<b>${esc(forn)}</b>` : '<b style="color:var(--red);">______</b>'} — ${esc(p.fornecedor)}.</li>
+      <li>Nos itens, digite <b>Código</b> (F2), <b>Qtde.</b>, <b>Valor Unitário</b>, <b>Lote</b> (F4) e <b>Validade</b> como na tabela.</li>
+      <li>Clique em <b>OK</b> e anote o número da requisição.</li>`;
+  }
+  const tabelaXml = en.viaXml ? `
+    <div class="table-wrap" style="max-height:none;"><table>
+      <thead><tr><th>#</th><th>Cód. na nota</th><th>Descrição na nota</th><th class="right">Qtd.</th><th>F2 - Cód. SIS</th><th>Produto no SIS</th><th>Lote / Validade</th></tr></thead>
+      <tbody>${en.xmlItens.map(x=> `<tr>
+        <td>${esc(x.n)}</td><td>${esc(x.cProd)}</td><td style="white-space:normal;min-width:180px;">${esc(x.xProd)}</td>
+        <td class="right">${fmtNumFio(x.qCom)} ${esc(x.uCom)}</td>
+        <td><b>${x.codigoSIS ? esc(x.codigoSIS) : '<span style="color:var(--red);">SEM CÓDIGO — confira antes de importar</span>'}</b></td>
+        <td style="white-space:normal;">${esc(x.descricaoSIS)||'—'}</td>
+        <td style="white-space:normal;">${(x.lotes||[]).length ? x.lotes.map(lo=> esc(lo.lote) + (lo.validade?' · '+fmtDateBR(lo.validade):'')).join('<br>') : '—'}</td></tr>`).join('')}</tbody>
+    </table></div>` : '';
+  const tabelaItens = `
+    <div class="table-wrap" style="max-height:none;${en.viaXml?'margin-top:12px;':''}"><table>
+      <thead><tr><th>Código SIS</th><th>Produto</th><th>Unid. SIS</th><th class="right">Qtde.</th><th class="right">Valor Unitário</th><th>Lote</th><th>Validade</th></tr></thead>
+      <tbody>${linhasLote.map(({it, lo})=> `<tr>
+        <td><b>${it.codigo ? esc(it.codigo) : '<span style="color:var(--red);">sem código</span>'}</b></td>
+        <td style="white-space:normal;min-width:200px;">${esc(it.descricaoSIS || it.descricao)}</td>
+        <td>${esc(it.unidadeSIS || ((it.fator||1)===1 ? it.unidade : ''))||'<span class="muted">unid. do SIS</span>'}</td>
+        <td class="right"><b>${fmtNumFio((Number(lo.qtd)||0) * (it.fator||1))}</b>${(it.fator||1)!==1 ? `<div class="fio-ref">${fmtNumFio(lo.qtd)} ${esc(it.unidade)} × ${fmtNumFio(it.fator)}</div>` : ''}</td>
+        <td class="right">${fmtMoney4((it.valorUnit||0) / (it.fator||1))}</td>
+        <td><b>${lo.lote ? esc(lo.lote) : '<span style="color:var(--red);">________</span>'}</b></td>
+        <td><b>${lo.validade ? fmtDateBR(lo.validade) : '<span style="color:var(--red);">___/___/____</span>'}</b></td></tr>`).join('')}</tbody>
+    </table></div>`;
+  return `
+    <div class="card" id="sisFolha_${en.id}">
+      <div class="flexrow"><h2 style="margin:0;">📄 Folha da REQUISIÇÃO DE ENTRADA para o SIS${en.parcial?' <span class="badge tipo-disp">entrega parcial</span>':''}</h2>
+        <button class="btn ghost small" onclick="printReportAsk('sisFolhaPrint_${en.id}','Requisição de Entrada — SIS')">🖨️ Imprimir</button></div>
+      <div id="sisFolhaPrint_${en.id}" style="margin-top:10px;">
+        ${reportHeaderHTML({numero:p.numero, solicitante:p.solicitante, destino:p.destino, data:fmtDateBR(en.data), status:'FECHADA', rotulo:'Requisição de Entrada no SIS — Cotação'})}
+        <div class="alerta-aviso" style="margin-bottom:10px;">🏥 ${unidAviso}</div>
+        <ol class="fio-passos">${passos}</ol>
+        ${tabelaXml}${tabelaItens}
+        ${naoVieram.length && !en.viaXml ? `<div class="muted" style="margin-top:10px;font-size:12px;"><b>Não vieram nesta entrega:</b> ${naoVieram.map(l=> (l.codigo?esc(l.codigo)+' ':'') + esc(l.descricaoSIS||l.descricao)).join('; ')}.</div>` : ''}
+        <div style="margin-top:16px;font-size:12.5px;">Nº da requisição gerada no SIS: ____________________ &nbsp; Lançado por: ______________________ &nbsp; Data: ____/____/______</div>
+      </div>
+    </div>`;
+}
+/* ---- Quadro "Lançamentos no Fiorilli (SIS)" na conferência de um pedido ---- */
+function sisCardPedidoHTML(p){
+  if(!sisAtivo()) return '';
+  const podeEd = podeEditar('conferenciaPedidos');
+  const s = sisLeitura(p.rec);
+  const d = sisDadosPedido(p);
+  const numPedido = s.pedido.numero || '';
+  const semReq = sisEntregasSemRequisicao(p.rec);
+  const entradas = s.entradas.slice().sort((a,b)=> (b.criadoEm||'').localeCompare(a.criadoEm||''));
+  const folhaEntrada = entradas.find(en=> en.id===sisFolhaAberta);
+  return `
+    <div class="card no-print">
+      <h2>🏥 Lançamentos no Fiorilli (SIS)</h2>
+      <div class="subtitle">O Cotações monta o que deve ser lançado no SIS e controla o que já foi lançado — quem grava no SIS é você, seguindo a folha.</div>
+      ${d.faltas.length ? `<div class="alerta-aviso">⚠️ Para as folhas saírem completas, falta cadastrar: <ul style="margin:6px 0 0 18px;padding:0;">${d.faltas.map(f=> '<li>'+f+'</li>').join('')}</ul></div>` : ''}
+      <div class="conf-kv" style="margin-bottom:12px;">
+        <div><span class="k">Pedido no SIS</span><b class="v" style="color:${numPedido?'var(--green)':'#8a5a1c'};">${numPedido ? '✅ nº '+esc(numPedido) : '⏳ ainda não lançado'}</b></div>
+        <div><span class="k">Fornecedor no SIS</span><b class="v">${d.forn ? esc(d.forn) : '—'}</b></div>
+        <div><span class="k">Unidade de destino</span><b class="v">${d.unid.codigo ? esc(d.unid.codigo) : '—'}</b></div>
+        <div><span class="k">Requisições de entrada</span><b class="v">${entradas.filter(e=> e.status!=='lancada').length} a lançar · ${entradas.filter(e=> e.status==='lancada').length} lançada(s)</b></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="btn secondary small" onclick="sisAbrirFolha('pedido')">📄 ${sisFolhaAberta==='pedido'?'Fechar':'Ver'} folha do pedido</button>
+        ${podeEd ? `<span style="margin-left:6px;font-size:12px;">Nº do pedido no SIS:</span>
+          <input id="sisNumPedido" value="${esc(numPedido)}" placeholder="ex.: 846" style="width:130px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;font-family:inherit;">
+          <button class="btn small" onclick="sisGravarNumeroPedido('${p.chave}')">💾 Gravar nº</button>` : ''}
+      </div>
+      ${Object.keys(semReq).length ? `
+      <div class="alerta-aviso" style="margin:12px 0 0;">📥 Há entrega(s) registrada(s) aqui que ainda não têm requisição de entrada para o SIS:
+        ${Object.keys(semReq).map(rid=>{ const g = semReq[rid]; return `<div style="margin-top:6px;">• ${fmtDateBR(g[0].data)} — ${esc(g[0].nota)||'sem nota'} — ${g.length} item(ns) ${podeEd?`<button class="btn small" style="margin-left:6px;" onclick="sisGerarEntradaPendente('${p.chave}','${rid}')">Gerar requisição de entrada</button>`:''}</div>`; }).join('')}
+      </div>` : ''}
+      ${entradas.length ? `
+      <div class="table-wrap" style="margin-top:12px;"><table>
+        <thead><tr><th>Gerada em</th><th>Nota</th><th>Itens</th><th>Forma</th><th>Situação</th><th></th></tr></thead>
+        <tbody>${entradas.map(en=> `<tr>
+          <td>${new Date(en.criadoEm).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}</td>
+          <td>${esc(en.nota)||'—'}</td>
+          <td>${en.itens.length}${en.parcial?' <span class="badge tipo-disp">parcial</span>':''}</td>
+          <td>${en.viaXml ? 'Importar XML' : (numPedido ? 'Por Pedido' : 'Por Produto')}</td>
+          <td>${en.status==='lancada' ? `<span class="fio-vinc-ok">✅ lançada${en.numeroSIS?' nº '+esc(en.numeroSIS):''}</span><div class="fio-ref">${esc(en.lancadaPor||'')} · ${en.lancadaEm?new Date(en.lancadaEm).toLocaleDateString('pt-BR'):''}</div>` : '<span class="fio-vinc-aviso">⏳ a lançar no SIS</span>'}</td>
+          <td style="white-space:nowrap;">
+            <button class="btn ghost small" onclick="sisAbrirFolha('${en.id}')">📄 ${sisFolhaAberta===en.id?'fechar':'folha'}</button>
+            ${podeEd && en.status!=='lancada' ? `<button class="btn small" onclick="sisMarcarEntradaLancada('${p.chave}','${en.id}')">✔ Marcar como lançada</button> <button class="btn ghost small" onclick="sisDescartarEntrada('${p.chave}','${en.id}')">🗑</button>` : ''}
+            ${en.status==='lancada' && isMaster() ? `<button class="btn ghost small" onclick="sisReabrirEntrada('${p.chave}','${en.id}')">↩ desfazer</button>` : ''}
+          </td></tr>`).join('')}</tbody>
+      </table></div>` : ''}
+    </div>
+    ${sisFolhaAberta==='pedido' ? sisFolhaPedidoHTML(p, d) : ''}
+    ${folhaEntrada ? sisFolhaEntradaHTML(p, folhaEntrada, numPedido) : ''}`;
+}
+/* ---- Visão geral (módulo 5): pendências de lançamento no SIS + configuração ---- */
+function sisPendenciasGerais(){
+  const out = [];
+  listaPedidos().forEach(p=>{
+    const s = sisLeitura(p.rec);
+    const aLancar = s.entradas.filter(e=> e.status!=='lancada').length;
+    const semReq = Object.keys(sisEntregasSemRequisicao(p.rec)).length;
+    const semPedido = !s.pedido.numero && p.status!=='COMPLETO';
+    if(aLancar || semReq || semPedido) out.push({ p, aLancar, semReq, semPedido });
+  });
+  return out;
+}
+function sisContarALancar(){
+  try{ return listaPedidos().reduce((n,p)=> n + sisLeitura(p.rec).entradas.filter(e=> e.status!=='lancada').length, 0); }catch(e){ return 0; }
+}
+function sisAbrirPedido(chave){ pedidoConfSel = chave; goto('conferenciaPedidos'); }
+function sisSalvarConfig(){
+  if(semPermissao('integracaoFiorilli')) return;
+  const s = STATE.config.sis;
+  const v = (id)=> (document.getElementById(id)||{});
+  s.ativo = !!v('sisCfgAtivo').checked;
+  s.tipoEntradaCodigo = (v('sisCfgTipoCod').value||'').trim() || '4';
+  s.tipoEntradaNome = (v('sisCfgTipoNome').value||'').trim() || 'COMPRA DE FORNECEDOR';
+  s.exigirXml = !!v('sisCfgXml').checked;
+  s.emailXml = (v('sisCfgEmail').value||'').trim();
+  saveState(true); render();
+  showToast('Configuração dos lançamentos no SIS salva.', 'success');
+}
+function sisAbaLancamentosHTML(){
+  const cfg = sisCfg();
+  const pend = sisAtivo() ? sisPendenciasGerais() : [];
+  return `
+    <div class="card edit-only">
+      <h2>⚙️ Lançamentos no SIS — configuração</h2>
+      <div class="formgrid">
+        <div class="field"><label>Gerar folhas de lançamento</label><label style="text-transform:none;font-weight:600;font-size:12.5px;color:var(--ink);display:flex;gap:6px;align-items:center;"><input type="checkbox" id="sisCfgAtivo" ${cfg.ativo!==false?'checked':''} style="width:auto;"> ativo na conferência</label></div>
+        <div class="field"><label>Tipo da entrada (código)</label><input id="sisCfgTipoCod" value="${esc(cfg.tipoEntradaCodigo||'4')}"></div>
+        <div class="field half"><label>Tipo da entrada (nome no SIS)</label><input id="sisCfgTipoNome" value="${esc(cfg.tipoEntradaNome||'COMPRA DE FORNECEDOR')}"></div>
+        <div class="field"><label>Pedir XML da NF-e</label><label style="text-transform:none;font-weight:600;font-size:12.5px;color:var(--ink);display:flex;gap:6px;align-items:center;"><input type="checkbox" id="sisCfgXml" ${cfg.exigirXml!==false?'checked':''} style="width:auto;"> no e-mail do pedido</label></div>
+        <div class="field half"><label>E-mail para receber os XML (opcional)</label><input id="sisCfgEmail" type="email" value="${esc(cfg.emailXml||'')}" placeholder="Em branco: o fornecedor responde o próprio e-mail do pedido"></div>
+      </div>
+      <div style="margin-top:12px;"><button class="btn" onclick="sisSalvarConfig()">💾 Salvar</button></div>
+    </div>
+    <div class="card">
+      <h2>📋 Pendências de lançamento no SIS (${pend.length})</h2>
+      <div class="subtitle">Pedidos com requisição de entrada a lançar, entregas sem requisição gerada ou pedido ainda não lançado no SIS.</div>
+      ${!sisAtivo() ? '<div class="helpbox" style="margin:0;">As folhas de lançamento estão desativadas na configuração acima.</div>' : `
+      <div class="table-wrap"><table>
+        <thead><tr><th>Cotação</th><th>Fornecedor</th><th>Destino</th><th>Pedido no SIS</th><th class="right">Requisições a lançar</th><th class="right">Entregas sem requisição</th><th></th></tr></thead>
+        <tbody>${pend.length===0 ? '<tr class="empty-row"><td colspan="7">Nada pendente. 🎉</td></tr>' : pend.map(x=> `<tr>
+          <td>${esc(x.p.numero)}</td><td style="white-space:normal;">${esc(x.p.fornecedor)}</td><td>${esc(x.p.destino)||'—'}</td>
+          <td>${x.semPedido ? '<span class="fio-vinc-aviso">não lançado</span>' : '<span class="fio-vinc-ok">ok</span>'}</td>
+          <td class="right">${x.aLancar||'—'}</td><td class="right">${x.semReq||'—'}</td>
+          <td><button class="btn small" onclick="sisAbrirPedido('${x.p.chave}')">Abrir</button></td></tr>`).join('')}</tbody>
+      </table></div>`}
+    </div>`;
+}
+
 /* ---------------- Navigation ----------------
    Ordem sequencial do menu: Visão Geral -> 1. Cadastros -> 2. Cotações ->
-   3. Conferência de Pedidos -> 4. Relatórios -> 5. Administração (só master). */
+   3. Conferência de Pedidos -> 4. Relatórios -> 5. Integração Fiorilli ->
+   6. Administração (só master). */
 const NAV_BASE = [
   {group:'Visão Geral', items:[
     {id:'dashboard', label:'Dashboard', icon:'📊'},
@@ -5245,9 +6952,12 @@ const NAV_BASE = [
     {id:'relEntregas', label:'Entregas e Prazos por Fornecedor', icon:'📥'},
     {id:'relPendencias', label:'Itens Pendentes de Entrega', icon:'⏳'},
   ]},
+  {group:'5. Integração Fiorilli', items:[
+    {id:'integracaoFiorilli', label:'Dados do Fiorilli (SIS)', icon:'🔄'},
+  ]},
 ];
 const NAV_ADMIN = [
-  {group:'5. Administração', items:[
+  {group:'6. Administração', items:[
     {id:'usuarios', label:'Usuários', icon:'👤'},
     {id:'logAcesso', label:'Log de Acesso', icon:'📜'},
   ]},
@@ -5272,6 +6982,7 @@ const PAGE_META = {
   relFornecedor:['Relatório por Fornecedor','Desempenho detalhado de um fornecedor específico: participação, taxa de vitória e valor fornecido.'],
   relProduto:['Relatório por Produto','Consolidado de todos os itens já cotados: frequência, preço médio, menor e maior preço registrados.'],
   relDestino:['Relatório por Destino/Setor','Quanto cada destino/setor gastou e a economia gerada, entre as cotações fechadas.'],
+  integracaoFiorilli:['Integração com o Fiorilli (SIS)','Traga do Fiorilli o cadastro de produtos, o estoque, o consumo e as entradas de notas, para montar cotações e conferir pedidos com esses dados. O Cotações só lê — nada é gravado no Fiorilli.'],
   usuarios:['Usuários','Cadastre usuários e senhas para acesso ao sistema. Apenas o administrador (master) vê este módulo.'],
   logAcesso:['Log de Acesso','Veja quem usou o sistema: usuário, data, hora início, hora final e comandos acessados. Apenas o administrador (master) vê este módulo.'],
 };
@@ -5280,13 +6991,14 @@ const NAV_ABERTOS_KEY = 'cot_nav_grupos_abertos';
 let navBusca = '';
 let navGruposAbertos = null;
 function navGrupoIcone(nome){
-  const n = normTxt(nome);
-  if(n.includes('VISAO GERAL')) return '📊';
-  if(n.includes('CADASTRO')) return '🗂️';
-  if(n.includes('CONFERENCIA')) return '📥';
-  if(n.includes('COTACO')) return '🛒';
-  if(n.includes('RELATORIO')) return '📈';
-  if(n.includes('ADMINISTRACAO')) return '🔐';
+  const n = normTxt(nome); // normTxt devolve em minúsculas
+  if(n.includes('visao geral')) return '📊';
+  if(n.includes('cadastro')) return '🗂️';
+  if(n.includes('conferencia')) return '📥';
+  if(n.includes('cotaco')) return '🛒';
+  if(n.includes('relatorio')) return '📈';
+  if(n.includes('integracao')) return '🔄';
+  if(n.includes('administracao')) return '🔐';
   return '📁';
 }
 function navGruposAbertosSet(){
@@ -5328,6 +7040,10 @@ function limparNavBusca(){
 /* Selo vermelho no menu: quantidade de pedidos com o prazo de entrega vencido.
    É só um aviso visual — não altera nem o menu nem nenhum dado. */
 function navBadge(id){
+  if(id==='integracaoFiorilli'){
+    const a = sisAtivo() ? sisContarALancar() : 0;
+    return a>0 ? `<span class="navbadge" title="${a} requisição(ões) de entrada a lançar no SIS">${a}</span>` : '';
+  }
   if(id!=='conferenciaPedidos') return '';
   let n = 0;
   try{ n = pedidosAtrasados().length; }catch(e){ n = 0; }
@@ -5404,9 +7120,10 @@ function render(){
   else if(currentView==='relFornecedor') v.innerHTML = viewRelFornecedor();
   else if(currentView==='relProduto') v.innerHTML = viewRelProduto();
   else if(currentView==='relDestino') v.innerHTML = viewRelDestino();
+  else if(currentView==='integracaoFiorilli') v.innerHTML = viewIntegracaoFiorilli();
   else if(currentView==='usuarios') v.innerHTML = viewUsuarios();
   else if(currentView==='logAcesso') v.innerHTML = viewLogAcesso();
-  const VIEWS_COM_FORM = ['entidade','fornecedores','categoriasFornecedores','produtos','destinos','novaCotacao','conferenciaPedidos'];
+  const VIEWS_COM_FORM = ['entidade','fornecedores','categoriasFornecedores','produtos','destinos','novaCotacao','conferenciaPedidos','integracaoFiorilli'];
   if(!podeEditar(currentView) && VIEWS_COM_FORM.includes(currentView)){
     document.querySelectorAll('.edit-only').forEach(n=> n.style.display='none');
   }
@@ -5437,6 +7154,8 @@ async function bootAfterAccessCode(){
   document.getElementById('loadingScreen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   goto('dashboard');
+  // Dados importados do Fiorilli: carregam em segundo plano, sem atrasar a entrada no sistema.
+  fioCarregar().then(()=>{ if(currentView==='integracaoFiorilli') render(); });
   if(boasVindasPendente){
     boasVindasPendente = false;
     setTimeout(mostrarBoasVindas, 300);
