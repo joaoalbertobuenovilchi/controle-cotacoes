@@ -290,6 +290,12 @@ tfoot td{padding:8px 10px;font-weight:700;background:#F2F7F7;border-top:2px soli
 .fio-vinc-ok{color:var(--green);font-weight:700;}
 .fio-vinc-aviso{color:#8a5a1c;font-weight:700;}
 .fio-vinc-nao{color:var(--ink-soft);}
+.sis-passo{padding:10px 0;border-top:1px dashed var(--line);font-size:12.5px;display:block;}
+.sis-passo:first-of-type{border-top:none;}
+.sis-passo input{margin-left:6px;}
+.cad-check{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px dashed var(--line);font-size:12.5px;}
+.cad-check:first-of-type{border-top:none;}
+.cad-check .ic{font-size:18px;line-height:1;}
 
 /* ── Dashboard melhorado ── */
 .dash-filtros{display:flex;gap:16px;flex-wrap:wrap;}
@@ -1052,9 +1058,12 @@ function trocarCodigoAcesso(){
    2.10.2026 (01/10/2026): Lançamentos no SIS — folhas do pedido e da requisição de
    entrada, lote/validade na conferência, leitura do XML da NF-e e pedido do XML
    no e-mail ao fornecedor.
+   2.11.2026 (01/10/2026): abas em Fornecedores, Destinos/Setores e na conferência do
+   pedido; importação de fornecedores e unidades de trabalho do SIS (Excel/CSV/TXT/PDF ou
+   colar); completar códigos ali mesmo no pedido; passo a passo; leitura de PDF.
    ============================================================ */
 const APP_CRIACAO = { mes: 9, ano: 2026 };
-const APP_ALTERACAO = 10;
+const APP_ALTERACAO = 11;
 const APP_DATA = '2026-10-01';
 function appVersao(){
   const p = APP_DATA.split('-').map(Number);
@@ -1462,7 +1471,47 @@ function viewFornecedores(){
   const editing = editingFornecedorId ? STATE.fornecedores.find(f=>f.id===editingFornecedorId) : null;
   const lista = STATE.fornecedores.slice().sort((a,b)=> normTxt(a.nome).localeCompare(normTxt(b.nome)));
   const categoriasFornecedor = STATE.categoriasFornecedores.slice().sort((a,b)=>normTxt(a).localeCompare(normTxt(b)));
-  return `
+  // Abas (igual à Nova Cotação): cadastrar/editar · lista · Fiorilli (importação e códigos do SIS)
+  const podeEd = podeEditar('fornecedores');
+  const semCodigo = STATE.fornecedores.filter(f=> f.ativo!==false && !f.codigoSIS).length;
+  const ABAS = (podeEd ? [{id:'cadastro', label: editing ? '✏️ Editar fornecedor' : '➕ Novo fornecedor'}] : [])
+    .concat([{id:'lista', label:`📋 Cadastrados (${lista.length})`}, {id:'sis', label:`🔄 Fiorilli (SIS)${semCodigo?' · '+semCodigo+' sem código':''}`}]);
+  if(!ABAS.some(a=> a.id===abaFornecedores)) abaFornecedores = ABAS[0].id;
+  const abas = cadAbasHTML('fornecedores', abaFornecedores, ABAS);
+  if(abaFornecedores==='sis') return abas + cadAbaSisHTML('fornecedores');
+  if(abaFornecedores==='lista') return abas + `
+    <div class="card">
+      <div class="flexrow" style="margin-bottom:8px;">
+        <h2 style="margin:0;">Fornecedores cadastrados (${lista.length})</h2>
+        <button class="btn ghost small" onclick="printReportAsk('fornecedoresPrint','Fornecedores Cadastrados')">🖨️ Imprimir</button>
+      </div>
+      <div id="fornecedoresPrint">
+        ${reportBrandRowHTML()}
+        <div class="table-wrap"><table>
+          <thead><tr><th>Nome</th><th>Cód. SIS</th><th>Contato</th><th>Telefone</th><th>E-mail</th><th>Categoria/Ramo</th><th>Prazo entrega</th><th>Status</th><th class="no-print"></th></tr></thead>
+          <tbody>
+            ${lista.length===0 ? `<tr class="empty-row"><td colspan="9">Nenhum fornecedor cadastrado.</td></tr>` :
+              lista.map(f=>`
+              <tr>
+                <td><b>${esc(f.nome)}</b></td>
+                <td>${esc(f.codigoSIS)||'<span class="muted">—</span>'}</td>
+                <td>${esc(f.contato)||'—'}</td>
+                <td>${esc(f.telefone)||'—'}</td>
+                <td>${esc(f.email)||'—'}</td>
+                <td>${(f.categorias&&f.categorias.length) ? esc(f.categorias.join(', ')) : '—'}</td>
+                <td>${Number(f.prazoEntregaDias)>0 ? (Number(f.prazoEntregaDias)+' dia(s)') : '<span class="muted">não informado</span>'}</td>
+                <td>${f.ativo!==false ? '<span class="badge ativo">Ativo</span>' : '<span class="badge inativo">Inativo</span>'}</td>
+                <td class="no-print">
+                  <button class="btn ghost small edit-only" onclick="editFornecedor('${f.id}')">✏️ editar</button>
+                  <button class="btn ghost small edit-only" onclick="toggleAtivoFornecedor('${f.id}')">${f.ativo!==false?'⏸ desativar':'▶️ ativar'}</button>
+                  <button class="btn ghost small edit-only" onclick="deleteFornecedor('${f.id}')">🗑 excluir</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table></div>
+      </div>
+    </div>`;
+  return abas + `
     <div class="card edit-only">
       <h2>${editing ? '✏️ Editar fornecedor' : '+ Novo fornecedor'}</h2>
       <div class="formgrid">
@@ -1500,36 +1549,6 @@ function viewFornecedores(){
           : `<button class="btn" onclick="saveFornecedor()">+ Adicionar fornecedor</button>`}
       </div>
     </div>
-    <div class="card">
-      <div class="flexrow" style="margin-bottom:8px;">
-        <h2 style="margin:0;">Fornecedores cadastrados (${lista.length})</h2>
-        <button class="btn ghost small" onclick="printReportAsk('fornecedoresPrint','Fornecedores Cadastrados')">🖨️ Imprimir</button>
-      </div>
-      <div id="fornecedoresPrint">
-        ${reportBrandRowHTML()}
-        <div class="table-wrap"><table>
-          <thead><tr><th>Nome</th><th>Contato</th><th>Telefone</th><th>E-mail</th><th>Categoria/Ramo</th><th>Prazo entrega</th><th>Status</th><th class="no-print"></th></tr></thead>
-          <tbody>
-            ${lista.length===0 ? `<tr class="empty-row"><td colspan="8">Nenhum fornecedor cadastrado.</td></tr>` :
-              lista.map(f=>`
-              <tr>
-                <td><b>${esc(f.nome)}</b>${f.codigoSIS?`<div class="fio-ref">SIS: cód. ${esc(f.codigoSIS)}</div>`:''}</td>
-                <td>${esc(f.contato)||'—'}</td>
-                <td>${esc(f.telefone)||'—'}</td>
-                <td>${esc(f.email)||'—'}</td>
-                <td>${(f.categorias&&f.categorias.length) ? esc(f.categorias.join(', ')) : '—'}</td>
-                <td>${Number(f.prazoEntregaDias)>0 ? (Number(f.prazoEntregaDias)+' dia(s)') : '<span class="muted">não informado</span>'}</td>
-                <td>${f.ativo!==false ? '<span class="badge ativo">Ativo</span>' : '<span class="badge inativo">Inativo</span>'}</td>
-                <td class="no-print">
-                  <button class="btn ghost small edit-only" onclick="editFornecedor('${f.id}')">✏️ editar</button>
-                  <button class="btn ghost small edit-only" onclick="toggleAtivoFornecedor('${f.id}')">${f.ativo!==false?'⏸ desativar':'▶️ ativar'}</button>
-                  <button class="btn ghost small edit-only" onclick="deleteFornecedor('${f.id}')">🗑 excluir</button>
-                </td>
-              </tr>`).join('')}
-          </tbody>
-        </table></div>
-      </div>
-    </div>
   `;
 }
 function toggleCategoriaFornecedorSelecionada(nome){
@@ -1557,6 +1576,7 @@ function saveFornecedor(){
     const f = STATE.fornecedores.find(x=>x.id===editingFornecedorId);
     if(f) Object.assign(f, dados);
     editingFornecedorId = null;
+    abaFornecedores = 'lista';
     showToast('Fornecedor atualizado.','success');
   } else {
     STATE.fornecedores.push({ id: uid(), ativo:true, ...dados });
@@ -1567,11 +1587,12 @@ function saveFornecedor(){
 }
 function editFornecedor(id){
   editingFornecedorId = id;
+  abaFornecedores = 'cadastro';
   const f = STATE.fornecedores.find(x=>x.id===id);
   forSelecionadasCategorias = (f && Array.isArray(f.categorias)) ? f.categorias.slice() : [];
   render();
 }
-function cancelEditFornecedor(){ editingFornecedorId = null; forSelecionadasCategorias = []; render(); }
+function cancelEditFornecedor(){ editingFornecedorId = null; forSelecionadasCategorias = []; abaFornecedores = 'lista'; render(); }
 function toggleAtivoFornecedor(id){
   if(semPermissao('fornecedores')) return;
   const f = STATE.fornecedores.find(x=>x.id===id);
@@ -1717,8 +1738,9 @@ function viewProdutos(){
           ${categorias.map(c=>`<option value="${esc(c)}" ${editing && editing.categoria===c ?'selected':''}>${esc(c)}</option>`).join('')}
         </select></div>
         <div class="field"><label>Código no Fiorilli (opcional)</label><input id="prodCodigoFiorilli" value="${editing?esc(editing.codigoFiorilli||''):''}" placeholder="Ex: 003.042.732"></div>
-        <div class="field"><label>Fator SIS (1 unid. daqui = ? no SIS)</label><input id="prodFatorSIS" type="number" min="0" step="any" value="${editing && Number(editing.fatorSIS)>0 ? Number(editing.fatorSIS) : ''}" placeholder="1 (mesma unidade)"></div>
+        <div class="field"><label>Fator (unidades do SIS em 1 daqui)</label><input id="prodFatorSIS" type="number" min="0" step="any" value="${editing && Number(editing.fatorSIS)>0 ? Number(editing.fatorSIS) : ''}" placeholder="1 = mesma unidade"></div>
       </div>
+      <div class="muted" style="font-size:11.5px;margin-top:6px;">🏥 <b>Fiorilli (SIS):</b> o código liga este produto ao SIS. O <b>fator</b> só é preciso quando a unidade é diferente — ex.: aqui você compra <b>CAIXA</b> com 21 cápsulas e o SIS controla <b>CÁPSULA</b> → fator <b>21</b>. Mesma unidade: deixe em branco.</div>
       ${categorias.length===0?`<div class="helpbox" style="margin-top:6px;">Cadastre pelo menos uma categoria acima para poder selecioná-la aqui.</div>`:''}
       <div style="margin-top:14px;display:flex;gap:8px;">
         ${editing
@@ -1817,7 +1839,7 @@ function saveProduto(){
   const elCodFio = document.getElementById('prodCodigoFiorilli');
   if(elCodFio) dados.codigoFiorilli = elCodFio.value.trim();
   const elFator = document.getElementById('prodFatorSIS');
-  if(elFator) dados.fatorSIS = Number(elFator.value)>0 ? Number(elFator.value) : 1;
+  if(elFator && Number(elFator.value)>0) dados.fatorSIS = Number(elFator.value); // em branco = mantém como está
   if(editingProdutoId){
     const p = STATE.produtos.find(x=>x.id===editingProdutoId);
     if(p) Object.assign(p, dados);
@@ -1870,21 +1892,15 @@ function importarProdutosArquivo(event){
 function viewDestinos(){
   const editing = editingDestinoId ? STATE.destinos.find(d=>d.id===editingDestinoId) : null;
   const lista = STATE.destinos.slice().sort((a,b)=> normTxt(a.nome).localeCompare(normTxt(b.nome)));
-  return `
-    <div class="card edit-only">
-      <h2>${editing ? '✏️ Editar destino/setor' : '+ Novo destino/setor'}</h2>
-      <div class="subtitle">Ex.: Farmácia Social/Judicial, Secretaria de Saúde, Almoxarifado Central...</div>
-      <div class="formgrid">
-        <div class="field half"><label>Nome do destino/setor</label><input id="destNome" value="${editing?esc(editing.nome):''}" placeholder="Ex: FARMÁCIA SOCIAL/JUDICIAL"></div>
-        <div class="field"><label>Unidade no SIS (código)</label><input id="destUnidadeSIS" value="${editing?esc(editing.unidadeSIS||''):''}" placeholder="Ex: 2023857001"></div>
-      </div>
-      <div class="muted" style="font-size:11.5px;margin-top:6px;">A unidade no SIS (Fiorilli) é a "Unidade de Destino" dos pedidos e a unidade onde a entrada deve ser lançada — aparece na janela "Escolha uma Unidade de Trabalho" do SIS.</div>
-      <div style="margin-top:14px;display:flex;gap:8px;">
-        ${editing
-          ? `<button class="btn" onclick="saveDestino()">💾 Salvar alterações</button><button class="btn secondary" onclick="cancelEditDestino()">Cancelar</button>`
-          : `<button class="btn" onclick="saveDestino()">+ Adicionar</button>`}
-      </div>
-    </div>
+  // Abas (igual à Nova Cotação): cadastrar/editar · lista · Fiorilli (unidades de trabalho do SIS)
+  const podeEd = podeEditar('destinos');
+  const semUnidade = STATE.destinos.filter(d=> !d.unidadeSIS).length;
+  const ABAS = (podeEd ? [{id:'cadastro', label: editing ? '✏️ Editar destino/setor' : '➕ Novo destino/setor'}] : [])
+    .concat([{id:'lista', label:`📋 Cadastrados (${lista.length})`}, {id:'sis', label:`🔄 Unidades do Fiorilli (SIS)${semUnidade?' · '+semUnidade+' sem unidade':''}`}]);
+  if(!ABAS.some(a=> a.id===abaDestinos)) abaDestinos = ABAS[0].id;
+  const abas = cadAbasHTML('destinos', abaDestinos, ABAS);
+  if(abaDestinos==='sis') return abas + cadAbaSisHTML('destinos');
+  if(abaDestinos==='lista') return abas + `
     <div class="card">
       <h2>Destinos/setores cadastrados (${lista.length})</h2>
       <div class="table-wrap"><table>
@@ -1902,6 +1918,21 @@ function viewDestinos(){
             </tr>`).join('')}
         </tbody>
       </table></div>
+    </div>`;
+  return abas + `
+    <div class="card edit-only">
+      <h2>${editing ? '✏️ Editar destino/setor' : '+ Novo destino/setor'}</h2>
+      <div class="subtitle">Ex.: Farmácia Social/Judicial, Secretaria de Saúde, Almoxarifado Central...</div>
+      <div class="formgrid">
+        <div class="field half"><label>Nome do destino/setor</label><input id="destNome" value="${editing?esc(editing.nome):''}" placeholder="Ex: FARMÁCIA SOCIAL/JUDICIAL"></div>
+        <div class="field"><label>Unidade no SIS (código)</label><input id="destUnidadeSIS" value="${editing?esc(editing.unidadeSIS||''):''}" placeholder="Ex: 2023857001"></div>
+      </div>
+      <div class="muted" style="font-size:11.5px;margin-top:6px;">A unidade no SIS (Fiorilli) é a "Unidade de Destino" dos pedidos e a unidade onde a entrada deve ser lançada — aparece na janela "Escolha uma Unidade de Trabalho" do SIS.</div>
+      <div style="margin-top:14px;display:flex;gap:8px;">
+        ${editing
+          ? `<button class="btn" onclick="saveDestino()">💾 Salvar alterações</button><button class="btn secondary" onclick="cancelEditDestino()">Cancelar</button>`
+          : `<button class="btn" onclick="saveDestino()">+ Adicionar</button>`}
+      </div>
     </div>
   `;
 }
@@ -1915,6 +1946,7 @@ function saveDestino(){
     const d = STATE.destinos.find(x=>x.id===editingDestinoId);
     if(d){ d.nome = nome; if(unidadeSIS!==undefined) d.unidadeSIS = unidadeSIS; }
     editingDestinoId = null;
+    abaDestinos = 'lista';
     showToast('Destino atualizado.','success');
   } else {
     STATE.destinos.push(unidadeSIS!==undefined ? { id: uid(), nome, unidadeSIS } : { id: uid(), nome });
@@ -1922,14 +1954,275 @@ function saveDestino(){
   }
   saveState(true); render();
 }
-function editDestino(id){ editingDestinoId = id; render(); }
-function cancelEditDestino(){ editingDestinoId = null; render(); }
+function editDestino(id){ editingDestinoId = id; abaDestinos = 'cadastro'; render(); }
+function cancelEditDestino(){ editingDestinoId = null; abaDestinos = 'lista'; render(); }
 function deleteDestino(id){
   if(semPermissao('destinos')) return;
   if(!confirm('Excluir este destino/setor?')) return;
   STATE.destinos = STATE.destinos.filter(x=>x.id!==id);
   if(editingDestinoId===id) editingDestinoId = null;
   saveState(true); render();
+}
+
+/* ============================================================
+   CADASTROS × FIORILLI (SIS): importar fornecedores e unidades de trabalho
+   ------------------------------------------------------------
+   Lê a lista que sai do SIS (Excel, CSV, TXT ou PDF) ou colada com Ctrl+V,
+   reconhece código + nome (+ CNPJ dos fornecedores), procura o cadastro
+   correspondente aqui e mostra uma prévia: ligar ao existente (grava só o
+   código do SIS), cadastrar como novo ou não importar. Código do SIS já
+   gravado só é trocado se o usuário marcar "substituir". Nada é apagado.
+   ============================================================ */
+let abaFornecedores = 'cadastro';
+let abaDestinos = 'cadastro';
+let cadImport = null;   // {qual, origem, linhas:[{codigo, nome, cnpj, acao:'ligar'|'novo'|'ignorar', alvoId, por, substituir}]}
+let cadColar = '';      // cadastro com a área "colar" aberta
+let filtroCadSis = { fornecedores:{ termo:'', soSem:false }, destinos:{ termo:'', soSem:false } };
+const CAD_SIS = {
+  fornecedores: { lista: ()=> STATE.fornecedores, campo:'codigoSIS', plural:'fornecedores', item:'fornecedor', rotulo:'Código no SIS', exemplo:'57',
+    onde: 'No SIS Farmácia: <b>Cadastros → Fornecedores</b> → <b>Imprimir</b> e salve o relatório em <b>Excel</b> (ou PDF). Também dá para copiar as linhas (Ctrl+C) e colar aqui.' },
+  destinos: { lista: ()=> STATE.destinos, campo:'unidadeSIS', plural:'unidades de trabalho', item:'destino/setor', rotulo:'Unidade no SIS', exemplo:'2023857001',
+    onde: 'São as unidades da janela <b>"Escolha uma Unidade de Trabalho"</b> do SIS (código + nome). Use a lista exportada do SIS em Excel/CSV/PDF ou cole as linhas (Ctrl+V), uma unidade por linha: <i>código</i> e <i>nome</i>.' },
+};
+function cadSemZeros(s){ return String(s===undefined||s===null?'':s).trim().replace(/^0+(?=\d)/,''); }
+function cadAbasHTML(qual, atual, abas){
+  return `<div class="card" style="margin-bottom:0;"><div class="tabs" style="margin-bottom:0;">
+    ${abas.map(a=> `<div class="tab ${atual===a.id?'active':''}" onclick="setAbaCadastro('${qual}','${a.id}')">${a.label}</div>`).join('')}
+  </div></div>`;
+}
+function setAbaCadastro(qual, a){ if(qual==='fornecedores') abaFornecedores = a; else abaDestinos = a; render(); }
+
+/* ---- Leitura da lista: com cabeçalho (Código / Nome / CNPJ) ou linha a linha ---- */
+const CAD_CAB = {
+  codigo: ['codigo','cod','cd','codigo sis','cod sis','cod fornecedor','codigo fornecedor','cod unidade','codigo unidade','cd unidade'],
+  nome:   ['nome','razao social','fornecedor','nome fornecedor','unidade','nome unidade','unidade de trabalho','descricao','nome fantasia','destino','setor','estabelecimento'],
+  cnpj:   ['cnpj','cpf','cnpj cpf','cpf cnpj','cgc','documento'],
+};
+const CAD_RE_DOC = /\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}|\d{3}\.?\d{3}\.?\d{3}-?\d{2}/;
+function cadLinhaSolta(cells){
+  let partes = (cells||[]).map(c=> String(c===undefined||c===null?'':c).trim()).filter(Boolean);
+  if(!partes.length) return null;
+  if(partes.length===1) partes = partes[0].split(/\t|\s{2,}/).map(s=> s.trim()).filter(Boolean);
+  if(partes.length===1){ const m = partes[0].match(/^(\d{1,15})\s*[-–:.]?\s+(.+)$/); if(m) partes = [m[1], m[2]]; }
+  let codigo = '', nome = '', cnpj = '';
+  partes.forEach(p=>{
+    if(!cnpj && CAD_RE_DOC.test(p) && /^[\d.\/\-\s]+$/.test(p) && p.replace(/\D/g,'').length>=11){ cnpj = p.match(CAD_RE_DOC)[0]; return; }
+    if(!codigo && /^\d{1,15}$/.test(p)){ codigo = p; return; }
+    if(codigo && !nome && /[A-Za-zÀ-ÿ]{2,}/.test(p)) nome = p.replace(/\s+/g,' ');
+  });
+  if(!codigo || !nome) return null;
+  if(/^(p[aá]gina|total|emitido|emiss[aã]o|relat[oó]rio|usu[aá]rio)\b/i.test(nome)) return null;
+  return { codigo, nome, cnpj };
+}
+function cadLinhasDoAoa(aoa){
+  const lim = (s)=> String(s===undefined||s===null?'':s).trim();
+  const unico = (rs)=>{ const vistos = new Set(); return rs.filter(r=>{ const k = cadSemZeros(r.codigo); if(vistos.has(k)) return false; vistos.add(k); return true; }); };
+  for(let i=0; i<Math.min(aoa.length, 40); i++){
+    const n = (aoa[i]||[]).map(c=> fioNorm(c));
+    const ic = n.findIndex(x=> CAD_CAB.codigo.includes(x));
+    const inome = n.findIndex((x,k)=> k!==ic && CAD_CAB.nome.includes(x));
+    if(ic>-1 && inome>-1){
+      const idoc = n.findIndex(x=> CAD_CAB.cnpj.includes(x));
+      return unico(aoa.slice(i+1).map(l=> ({ codigo: lim(l[ic]).replace(/\.0+$/,''), nome: lim(l[inome]).replace(/\s+/g,' '), cnpj: idoc>-1 ? lim(l[idoc]) : '' }))
+        .filter(r=> /^\d{1,15}$/.test(r.codigo) && /[A-Za-zÀ-ÿ]{2,}/.test(r.nome)));
+    }
+  }
+  return unico(aoa.map(cadLinhaSolta).filter(Boolean));
+}
+function cadMatch(qual, r, usados){
+  const cfg = CAD_SIS[qual], lista = cfg.lista();
+  const livre = (x)=> !usados.has(x.id);
+  let alvo = lista.find(x=> livre(x) && x[cfg.campo] && cadSemZeros(x[cfg.campo])===cadSemZeros(r.codigo));
+  if(alvo) return { alvo, por:'já tem este código' };
+  if(qual==='fornecedores'){
+    const dig = (s)=> String(s||'').replace(/\D/g,'');
+    if(dig(r.cnpj)){ alvo = lista.find(x=> livre(x) && dig(x.cnpj) && dig(x.cnpj)===dig(r.cnpj)); if(alvo) return { alvo, por:'mesmo CNPJ' }; }
+  }
+  alvo = lista.find(x=> livre(x) && normTxt(x.nome)===normTxt(r.nome));
+  if(alvo) return { alvo, por:'mesmo nome' };
+  let best = null;
+  lista.forEach(x=>{ if(!livre(x)) return; const sc = sisSimilaridade(x.nome, r.nome); if(sc>=0.6 && (!best || sc>best.sc)) best = { alvo:x, sc, por:'nome parecido' }; });
+  return best;
+}
+function cadIniciarImport(qual, aoa, origem){
+  const linhas = cadLinhasDoAoa(aoa||[]);
+  if(!linhas.length){ showToast('Não encontrei linhas com código e nome nesse conteúdo. Confira se a lista tem o código do SIS e o nome.', 'warning'); return; }
+  const cfg = CAD_SIS[qual], usados = new Set();
+  // 1º os casos certos (mesmo código, mesmo CNPJ, mesmo nome); depois os nomes parecidos,
+  // do mais parecido para o menos, para cada cadastro daqui ficar com a melhor linha do SIS.
+  const res = linhas.map(()=> null);
+  linhas.forEach((r,i)=>{ const m = cadMatch(qual, r, usados); if(m && m.por!=='nome parecido'){ res[i] = m; usados.add(m.alvo.id); } });
+  const pares = [];
+  linhas.forEach((r,i)=>{ if(res[i]) return; cfg.lista().forEach(x=>{ if(usados.has(x.id)) return; const sc = sisSimilaridade(x.nome, r.nome); if(sc>=0.6) pares.push({ i, alvo:x, sc }); }); });
+  pares.sort((a,b)=> b.sc - a.sc).forEach(pr=>{ if(res[pr.i] || usados.has(pr.alvo.id)) return; res[pr.i] = { alvo: pr.alvo, por:'nome parecido' }; usados.add(pr.alvo.id); });
+  cadImport = { qual, origem, linhas: linhas.map((r,i)=>{
+    const m = res[i];
+    return Object.assign({}, r, { alvoId: m ? m.alvo.id : '', por: m ? m.por : '', acao: m ? 'ligar' : (qual==='destinos' ? 'novo' : 'ignorar'), substituir:false });
+  }) };
+  cadColar = '';
+  render();
+}
+function cadEscolherArquivo(event, qual){
+  if(semPermissao(qual)){ event.target.value=''; return; }
+  const file = event.target.files[0]; event.target.value = '';
+  if(!file) return;
+  showToast('Lendo ' + file.name + '…');
+  fioLerArquivo(file).then(aoa=> cadIniciarImport(qual, aoa, file.name)).catch(err=> showToast(err.message || 'Não foi possível ler este arquivo.', 'error'));
+}
+function cadAbrirColar(qual){ cadColar = cadColar===qual ? '' : qual; render(); const el = document.getElementById('cadColarTexto'); if(el) el.focus(); }
+function cadLerColado(qual){
+  if(semPermissao(qual)) return;
+  const t = (document.getElementById('cadColarTexto')||{}).value || '';
+  if(!t.trim()){ showToast('Cole aqui as linhas (Ctrl+V).', 'warning'); return; }
+  cadIniciarImport(qual, fioAoaDeTexto(t), 'lista colada');
+}
+function cadCancelarImport(){ cadImport = null; render(); }
+function cadSetLinha(i, v){
+  const r = cadImport && cadImport.linhas[i]; if(!r) return;
+  if(v===''){ r.acao = 'ignorar'; }
+  else if(v==='__novo__'){ r.acao = 'novo'; }
+  else { r.acao = 'ligar'; r.alvoId = v; r.por = 'escolhido por você'; }
+  render();
+}
+function cadSetSubstituir(i, marcado){ const r = cadImport && cadImport.linhas[i]; if(r) r.substituir = !!marcado; }
+function cadNaoEncontrados(acao){
+  if(!cadImport) return;
+  cadImport.linhas.forEach(r=>{ if(!r.alvoId) r.acao = acao; });
+  render();
+}
+function cadAplicarImport(){
+  if(!cadImport) return;
+  const qual = cadImport.qual, cfg = CAD_SIS[qual];
+  if(semPermissao(qual)) return;
+  const lista = cfg.lista();
+  const lig = cadImport.linhas.filter(r=> r.acao==='ligar' && r.alvoId).length, nov = cadImport.linhas.filter(r=> r.acao==='novo').length;
+  if(!lig && !nov){ showToast('Nada marcado para importar.', 'warning'); return; }
+  if(!confirm(`Gravar ${lig} ligação(ões) com o SIS e ${nov} cadastro(s) novo(s) de ${cfg.item}?`)) return;
+  let ligados = 0, novos = 0, mantidos = 0;
+  cadImport.linhas.forEach(r=>{
+    if(r.acao==='ligar' && r.alvoId){
+      const x = lista.find(y=> y.id===r.alvoId); if(!x) return;
+      const outro = x[cfg.campo] && cadSemZeros(x[cfg.campo])!==cadSemZeros(r.codigo);
+      if(outro && !r.substituir){ mantidos++; return; }   // código já gravado só muda se o usuário marcou "substituir"
+      x[cfg.campo] = r.codigo;
+      if(qual==='fornecedores' && !x.cnpj && r.cnpj) x.cnpj = r.cnpj; // só completa o que estava vazio
+      ligados++;
+    } else if(r.acao==='novo'){
+      if(lista.some(y=> normTxt(y.nome)===normTxt(r.nome))){ mantidos++; return; }
+      if(qual==='fornecedores') STATE.fornecedores.push({ id: uid(), nome: r.nome, contato:'', telefone:'', email:'', cnpj: r.cnpj||'', categorias:[], prazoEntregaDias:0, ativo:true, codigoSIS: r.codigo });
+      else STATE.destinos.push({ id: uid(), nome: r.nome, unidadeSIS: r.codigo });
+      novos++;
+    }
+  });
+  cadImport = null;
+  saveState(true); render();
+  showToast(`Importação concluída: ${ligados} ligado(s) ao SIS, ${novos} novo(s)${mantidos?`, ${mantidos} mantido(s) como estavam`:''}.`, 'success');
+}
+/* ---- Código digitado direto na tabela (salva ao sair do campo) ---- */
+function cadSetCodigo(qual, id, v){
+  if(semPermissao(qual)) return;
+  const cfg = CAD_SIS[qual];
+  const x = cfg.lista().find(y=> y.id===id); if(!x) return;
+  x[cfg.campo] = String(v||'').trim();
+  saveState();
+  const st = document.getElementById('cadSt_'+id);
+  if(st) st.innerHTML = x[cfg.campo] ? '<span class="fio-vinc-ok">✓</span>' : '<span class="fio-vinc-nao">—</span>';
+  showToast(x[cfg.campo] ? `${cfg.rotulo} de ${x.nome}: ${x[cfg.campo]}` : `${cfg.rotulo} de ${x.nome} removido.`, 'success');
+}
+function cadFiltrar(qual, campo, valor, elId){
+  filtroCadSis[qual][campo] = valor; render();
+  if(elId){ const el = document.getElementById(elId); if(el){ el.focus(); try{ const n = String(el.value).length; el.setSelectionRange(n,n); }catch(e){} } }
+}
+/* ---- Aba "Fiorilli (SIS)" de Fornecedores / Destinos ---- */
+function cadAbaSisHTML(qual){
+  const cfg = CAD_SIS[qual], podeEd = podeEditar(qual);
+  const imp = (cadImport && cadImport.qual===qual) ? cadImport : null;
+  const f = filtroCadSis[qual];
+  let lista = cfg.lista().slice();
+  if(qual==='fornecedores') lista = lista.filter(x=> x.ativo!==false || x[cfg.campo]);
+  const termo = normTxt(f.termo);
+  if(termo) lista = lista.filter(x=> normTxt(x.nome).includes(termo) || String(x[cfg.campo]||'').includes(f.termo.trim()));
+  if(f.soSem) lista = lista.filter(x=> !x[cfg.campo]);
+  lista.sort((a,b)=> normTxt(a.nome).localeCompare(normTxt(b.nome)));
+  const total = cfg.lista().filter(x=> qual!=='fornecedores' || x.ativo!==false);
+  const comCod = total.filter(x=> x[cfg.campo]).length;
+  return `
+    ${imp ? cadPreviaHTML(imp) : `
+    <div class="card edit-only">
+      <h2>🔄 Importar ${cfg.plural} do Fiorilli (SIS)</h2>
+      <div class="subtitle">${cfg.onde}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" onclick="document.getElementById('cadArquivo').click()">📂 Escolher arquivo (Excel, CSV, TXT ou PDF)</button>
+        <button class="btn secondary" onclick="cadAbrirColar('${qual}')">📋 ${cadColar===qual?'Fechar área de colar':'Colar lista'}</button>
+        <input type="file" id="cadArquivo" accept=".xlsx,.xls,.ods,.csv,.txt,.tsv,.prn,.pdf" style="display:none;" onchange="cadEscolherArquivo(event,'${qual}')">
+      </div>
+      ${cadColar===qual ? `
+      <div class="field" style="margin-top:12px;">
+        <label>Cole aqui (Ctrl+V) — uma linha por ${cfg.item}: código e nome${qual==='fornecedores'?' (o CNPJ ajuda a achar quem já está cadastrado)':''}</label>
+        <textarea id="cadColarTexto" class="fio-colar" placeholder="${qual==='fornecedores' ? '57	NATALIA ISABEL CANHACO-ME - DROGA FORM	12.345.678/0001-90' : '2023857001	FARMACIA - ASSISTENCIA SOCIAL E JUDICIAL'}"></textarea>
+      </div>
+      <div style="margin-top:8px;"><button class="btn" onclick="cadLerColado('${qual}')">Ler lista colada</button></div>` : ''}
+      <div class="helpbox" style="margin:14px 0 0;">Antes de gravar você vê uma prévia: quem já existe aqui é <b>ligado</b> (só ganha o código do SIS) e quem não existe pode ser <b>cadastrado</b> ou <b>ignorado</b>. Nada é apagado, e código do SIS já gravado só muda se você marcar "substituir".</div>
+    </div>`}
+    <div class="card">
+      <div class="flexrow" style="margin-bottom:8px;">
+        <h2 style="margin:0;">🔗 ${cfg.rotulo} de cada ${cfg.item} (${comCod} de ${total.length} preenchidos)</h2>
+      </div>
+      <div class="subtitle">${podeEd ? 'Digite o código direto na tabela — salva sozinho ao sair do campo (Tab ou Enter).' : 'Somente consulta.'}</div>
+      <div class="formgrid no-print" style="margin-bottom:10px;">
+        <div class="field half"><label>Buscar</label><input id="cadBusca_${qual}" value="${esc(f.termo)}" oninput="cadFiltrar('${qual}','termo',this.value,'cadBusca_${qual}')" placeholder="Nome ou código"></div>
+        <div class="field"><label>Mostrar</label><select onchange="cadFiltrar('${qual}','soSem',this.value==='1')">
+          <option value="0" ${!f.soSem?'selected':''}>Todos</option><option value="1" ${f.soSem?'selected':''}>Só os sem código</option></select></div>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>${qual==='fornecedores'?'Fornecedor':'Destino/Setor'}</th>${qual==='fornecedores'?'<th>CNPJ</th>':''}<th>${cfg.rotulo}</th><th></th></tr></thead>
+        <tbody>${lista.length===0 ? `<tr class="empty-row"><td colspan="4">Nada para mostrar.</td></tr>` : lista.map(x=> `<tr>
+          <td style="white-space:normal;"><b>${esc(x.nome)}</b></td>
+          ${qual==='fornecedores' ? `<td>${esc(x.cnpj)||'—'}</td>` : ''}
+          <td>${podeEd ? `<input value="${esc(x[cfg.campo]||'')}" placeholder="ex.: ${cfg.exemplo}" onchange="cadSetCodigo('${qual}','${x.id}',this.value)" onkeydown="if(event.key==='Enter'){this.blur();}" style="width:150px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;font-family:inherit;">` : (esc(x[cfg.campo])||'—')}</td>
+          <td id="cadSt_${x.id}">${x[cfg.campo] ? '<span class="fio-vinc-ok">✓</span>' : '<span class="fio-vinc-nao">—</span>'}</td></tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+}
+function cadPreviaHTML(imp){
+  const cfg = CAD_SIS[imp.qual];
+  const lista = cfg.lista().slice().sort((a,b)=> normTxt(a.nome).localeCompare(normTxt(b.nome)));
+  const naoAchados = imp.linhas.filter(r=> !r.alvoId).length;
+  const nLig = imp.linhas.filter(r=> r.acao==='ligar' && r.alvoId).length, nNovo = imp.linhas.filter(r=> r.acao==='novo').length;
+  return `
+    <div class="card edit-only" style="border-left:4px solid var(--teal);">
+      <div class="flexrow"><h2 style="margin:0;">🧭 Conferir a importação — ${esc(imp.origem)}</h2><button class="btn ghost small" onclick="cadCancelarImport()">✕ cancelar</button></div>
+      <div class="subtitle" style="margin-top:6px;">${imp.linhas.length} ${cfg.plural} lido(s) do SIS · ${imp.linhas.length-naoAchados} encontrado(s) aqui · ${naoAchados} não encontrado(s). Troque na coluna "No Cotações" o que estiver errado.</div>
+      ${naoAchados ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12.5px;">
+        <b>Os ${naoAchados} não encontrados:</b>
+        <button class="btn secondary small" onclick="cadNaoEncontrados('novo')">➕ cadastrar todos como novos</button>
+        <button class="btn ghost small" onclick="cadNaoEncontrados('ignorar')">não importar nenhum</button></div>` : ''}
+      <div class="table-wrap"><table>
+        <thead><tr><th>Código no SIS</th><th>Nome no SIS</th>${imp.qual==='fornecedores'?'<th>CNPJ</th>':''}<th>No Cotações</th><th>Observação</th></tr></thead>
+        <tbody>${imp.linhas.map((r,i)=>{
+          const alvo = r.alvoId ? lista.find(x=> x.id===r.alvoId) : null;
+          const outro = r.acao==='ligar' && alvo && alvo[cfg.campo] && cadSemZeros(alvo[cfg.campo])!==cadSemZeros(r.codigo);
+          const valor = r.acao==='novo' ? '__novo__' : (r.acao==='ligar' && r.alvoId ? r.alvoId : '');
+          return `<tr>
+            <td><b>${esc(r.codigo)}</b></td>
+            <td style="white-space:normal;min-width:180px;">${esc(r.nome)}</td>
+            ${imp.qual==='fornecedores' ? `<td>${esc(r.cnpj)||'—'}</td>` : ''}
+            <td><select onchange="cadSetLinha(${i}, this.value)" style="max-width:300px;padding:5px 6px;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:12px;">
+              <option value="" ${valor===''?'selected':''}>— não importar —</option>
+              <option value="__novo__" ${valor==='__novo__'?'selected':''}>➕ cadastrar como novo</option>
+              ${lista.map(x=> `<option value="${x.id}" ${valor===x.id?'selected':''}>↔ ${esc(x.nome)}${x[cfg.campo]?' (cód. '+esc(x[cfg.campo])+')':''}</option>`).join('')}
+            </select></td>
+            <td style="white-space:normal;font-size:11.5px;">${r.acao==='ligar' && alvo ? (outro
+                ? `<label style="color:#8a5a1c;font-weight:700;"><input type="checkbox" ${r.substituir?'checked':''} onchange="cadSetSubstituir(${i}, this.checked)" style="width:auto;"> já tem o código ${esc(alvo[cfg.campo])} — substituir</label>`
+                : `<span class="fio-vinc-ok">${esc(r.por)}</span>`)
+              : (r.acao==='novo' ? 'será cadastrado' : '<span class="muted">fica de fora</span>')}</td></tr>`;
+        }).join('')}</tbody>
+      </table></div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" onclick="cadAplicarImport()">✅ Gravar (${nLig} ligação(ões), ${nNovo} novo(s))</button>
+        <button class="btn secondary" onclick="cadCancelarImport()">Cancelar</button>
+      </div>
+    </div>`;
 }
 
 /* ---------------- Leitura de arquivos externos (.xlsx/.xls/.csv) ----------------
@@ -4527,8 +4820,14 @@ function alertarPedidosAtrasados(){
 /* ---- Ações do usuário ---- */
 function setFiltroConferencia(campo, valor){ filtroConferencia[campo] = valor; render(); }
 function limparFiltroConferencia(){ filtroConferencia = { termo:'', status:'', fid:'', cotacaoId:'' }; render(); }
-function abrirPedidoConferencia(chave){ pedidoConfSel = chave; render(); }
-function voltarListaConferencia(){ pedidoConfSel = null; render(); }
+function abrirPedidoConferencia(chave){ if(pedidoConfSel!==chave){ abaPedido = 'recebimento'; recPrefill = null; } pedidoConfSel = chave; render(); }
+function voltarListaConferencia(){ pedidoConfSel = null; abaPedido = 'recebimento'; recPrefill = null; render(); }
+/* Abas da tela de um pedido: 'recebimento' | 'xml' | 'sis'. recPrefill guarda valores para os
+   campos da baixa (vindos do XML), porque eles ficam em outra aba. */
+let abaPedido = 'recebimento';
+let recPrefill = null;  // {chave, origem, data, nota, emissao, obs, qtd:{itemId:n}, lote:{itemId:''}, val:{itemId:''}}
+function setAbaPedido(a){ abaPedido = a; render(); window.scrollTo(0,0); }
+function limparPrefillPedido(){ recPrefill = null; sisXmlAplicado = null; render(); }
 
 function salvarEnvioPrazoPedido(chave){
   if(semPermissao('conferenciaPedidos')) return;
@@ -4617,6 +4916,7 @@ function registrarEntregaPedido(chave){
   if(semLote>0 && !confirm(semLote+' item(ns) estão sem lote ou sem validade. O Fiorilli pede lote e validade na requisição de entrada.\n\nRegistrar assim mesmo? (na folha do SIS esses campos ficam em branco para preencher à mão)')) return;
 
   rec.entregas.push.apply(rec.entregas, novas);
+  recPrefill = null;
   saveState(true); render();
   if(comSis){
     const xmlItens = xmlAplicado ? xmlAplicado.xmlItens : null;
@@ -4838,17 +5138,35 @@ function viewPedidoDetalhe(p){
     ? `<div class="alerta-aviso">📭 <b>Envio do pedido ainda não registrado.</b> Informe abaixo a data em que o pedido foi enviado a ${esc(p.fornecedor)} — é a partir dela que o prazo de entrega passa a ser contado.</div>`
     : `<div class="alerta-aviso">❔ <b>Sem prazo de entrega definido para este pedido.</b> Informe o prazo em dias abaixo (ou cadastre-o em Cadastros → Fornecedores) para o sistema poder avisar quando o prazo estourar.</div>`;
 
-  return `
+  // Abas (igual à Nova Cotação): o recebimento fica limpo e as novidades do SIS ficam em abas próprias.
+  const comAbas = sisAtivo();
+  if(!comAbas || !['recebimento','xml','sis'].includes(abaPedido)) abaPedido = 'recebimento';
+  const pf = (recPrefill && recPrefill.chave===p.chave) ? recPrefill : null; // valores vindos do XML/"recebi tudo"
+  const aLancarSis = comAbas ? sisLeitura(p.rec).entradas.filter(e=> e.status!=='lancada').length : 0;
+  const ABAS_PED = [
+    {id:'recebimento', label:'📥 Recebimento e conferência'},
+    {id:'xml', label:'📄 Nota fiscal (XML)'},
+    {id:'sis', label:`🏥 Lançamentos no SIS${aLancarSis?' ('+aLancarSis+')':''}`},
+  ];
+  const cabecalho = `
     ${faixaAlerta}
-    <div class="card">
+    <div class="card" style="${comAbas?'margin-bottom:0;':''}">
       <div class="flexrow">
         <button class="btn ghost small" onclick="voltarListaConferencia()">← Voltar à lista de pedidos</button>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <span class="status-pill ${si.pill}">${si.ic} ${si.label}</span>
-          <button class="btn ghost small" onclick="printReportAsk('pedidoPrint','Conferência do Pedido — Cotação ${esc(p.numero)}')">🖨️ Imprimir</button>
+          ${abaPedido==='recebimento'?`<button class="btn ghost small" onclick="printReportAsk('pedidoPrint','Conferência do Pedido — Cotação ${esc(p.numero)}')">🖨️ Imprimir</button>`:''}
         </div>
       </div>
-    </div>
+      ${comAbas?`<div class="tabs" style="margin-top:10px;margin-bottom:0;">
+        ${ABAS_PED.map(a=>`<div class="tab ${abaPedido===a.id?'active':''}" onclick="setAbaPedido('${a.id}')">${a.label}</div>`).join('')}
+      </div>`:''}
+    </div>`;
+  if(abaPedido==='xml') return cabecalho + sisAbaXmlHTML(p);
+  if(abaPedido==='sis') return cabecalho + sisCardPedidoHTML(p);
+
+  return `
+    ${cabecalho}
 
     <div class="card edit-only">
       <h2>📤 Envio do pedido e prazo de entrega</h2>
@@ -4865,8 +5183,6 @@ function viewPedidoDetalhe(p){
     </div>
 
     ${fioConferenciaPedidoHTML(p)}
-
-    ${sisCardPedidoHTML(p)}
 
     <div id="pedidoPrint">
       ${reportHeaderHTML({numero:p.numero, solicitante:p.solicitante, destino:p.destino, data:fmtDateBR(p.dataFechamento), status:'FECHADA', rotulo:'Conferência do Pedido — Cotação'})}
@@ -4889,20 +5205,15 @@ function viewPedidoDetalhe(p){
         <div class="helpbox">
           📥 <b>Como dar baixa:</b> digite na coluna <b>"Receber agora"</b> quanto chegou de cada item, confirme a data e o número da nota fiscal logo abaixo e clique em <b>Registrar entrega</b>.
           Pode fazer isso quantas vezes quiser — entregas parciais vão somando e o que faltar continua aparecendo como pendente.
-          ${sisAtivo()?' Informe também <b>lote</b> e <b>validade</b> (o Fiorilli pede na requisição de entrada) — ou use <b>"Ler XML da nota fiscal"</b> para preencher tudo sozinho.':''}
+          ${sisAtivo()?' Informe também <b>lote</b> e <b>validade</b> (o Fiorilli pede na requisição de entrada).':''}
         </div>
-        ${sisAtivo()?`
-        <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
-          <button class="btn secondary" onclick="document.getElementById('sisXmlArquivo').click()">📄 Ler XML da nota fiscal (NF-e)</button>
-          <input type="file" id="sisXmlArquivo" accept=".xml,text/xml,application/xml" style="display:none;" onchange="sisLerArquivoXml(event,'${p.chave}')">
-          <span class="muted" style="font-size:12px;">Confere a nota com o pedido (itens, quantidades, preços, lote e validade) e preenche a baixa.</span>
-        </div>
-        ${sisXmlPainelHTML(p)}`:''}
+        ${sisAtivo() && !pf?`<div class="no-print" style="margin:-4px 0 12px;font-size:12.5px;">📄 Recebeu o <b>XML da nota</b>? <a href="#" onclick="setAbaPedido('xml');return false;">Abra a aba "Nota fiscal (XML)"</a> — ela confere a nota com o pedido e preenche tudo aqui sozinha.</div>`:''}
+        ${pf && pf.origem ? `<div class="alerta-ok no-print">✅ Campos preenchidos com ${esc(pf.origem)}. Confira e clique em <b>Registrar entrega</b>. <a href="#" onclick="limparPrefillPedido();return false;">limpar</a></div>` : ''}
         <div class="formgrid" style="margin-bottom:12px;">
-          <div class="field"><label>Data do recebimento</label><input type="date" id="recData" value="${hojeISO()}"></div>
-          <div class="field"><label>Nota fiscal / documento</label><input id="recNota" placeholder="Ex: NF 12345"></div>
-          ${sisAtivo()?`<div class="field"><label>Emissão da nota</label><input type="date" id="recEmissao"></div>`:''}
-          <div class="field ${sisAtivo()?'':'half'}"><label>Observação da entrega</label><input id="recObs" placeholder="Ex: 2 caixas com avaria, devolvidas"></div>
+          <div class="field"><label>Data do recebimento</label><input type="date" id="recData" value="${esc((pf && pf.data) || hojeISO())}"></div>
+          <div class="field"><label>Nota fiscal / documento</label><input id="recNota" value="${esc((pf && pf.nota) || '')}" placeholder="Ex: NF 12345"></div>
+          ${sisAtivo()?`<div class="field"><label>Emissão da nota</label><input type="date" id="recEmissao" value="${esc((pf && pf.emissao) || '')}"></div>`:''}
+          <div class="field ${sisAtivo()?'':'half'}"><label>Observação da entrega</label><input id="recObs" value="${esc((pf && pf.obs) || '')}" placeholder="Ex: 2 caixas com avaria, devolvidas"></div>
         </div>`:''}
 
         <div class="table-wrap" style="max-height:none;">
@@ -4922,9 +5233,9 @@ function viewPedidoDetalhe(p){
                   <td class="right ${l.pendente>0?'qtd-pendente':'qtd-ok'}">${l.pendente>0?fmtNum(l.pendente):'✓ 0'}</td>
                   <td class="right">${fmtMoney(l.unit)}</td>
                   <td class="right">${l.valorPendente>0?fmtMoney(l.valorPendente):'—'}</td>
-                  ${podeEd?`<td class="no-print right">${l.pendente>0?`<input class="rec-input" type="number" min="0" step="any" id="recQtd_${l.id}" placeholder="0" title="Máximo pendente: ${fmtNum(l.pendente)}">`:'<span class="muted">completo</span>'}</td>`:''}
+                  ${podeEd?`<td class="no-print right">${l.pendente>0?`<input class="rec-input" type="number" min="0" step="any" id="recQtd_${l.id}" value="${pf && pf.qtd[l.id]!==undefined ? esc(pf.qtd[l.id]) : ''}" placeholder="0" title="Máximo pendente: ${fmtNum(l.pendente)}">`:'<span class="muted">completo</span>'}</td>`:''}
                   ${podeEd && sisAtivo()?(l.pendente>0
-                    ? `<td class="no-print"><input class="rec-input" style="width:110px;text-align:left;" id="recLote_${l.id}" placeholder="lote"></td><td class="no-print"><input class="rec-input" style="width:130px;text-align:left;" type="date" id="recVal_${l.id}"></td>`
+                    ? `<td class="no-print"><input class="rec-input" style="width:110px;text-align:left;" id="recLote_${l.id}" value="${esc((pf && pf.lote[l.id]) || '')}" placeholder="lote"></td><td class="no-print"><input class="rec-input" style="width:130px;text-align:left;" type="date" id="recVal_${l.id}" value="${esc((pf && pf.val[l.id]) || '')}"></td>`
                     : '<td class="no-print"></td><td class="no-print"></td>'):''}
                 </tr>`).join('')}
             </tbody>
@@ -5596,6 +5907,48 @@ function fioAoaDePlanilha(buf){
   wb.SheetNames.forEach(n=>{ aoa = aoa.concat(XLSX.utils.sheet_to_json(wb.Sheets[n], {header:1, defval:'', blankrows:false})); });
   return aoa;
 }
+/* PDF (relatórios do SIS costumam sair em PDF): o leitor pdf.js só é baixado quando
+   alguém escolhe um PDF. O texto de cada linha da página vira uma linha da planilha,
+   e espaços grandes entre os textos separam as colunas. */
+let PDFJS_PROMESSA = null;
+function carregarPdfJs(){
+  if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if(PDFJS_PROMESSA) return PDFJS_PROMESSA;
+  PDFJS_PROMESSA = new Promise((resolve, reject)=>{
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = ()=>{ window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; resolve(window.pdfjsLib); };
+    s.onerror = ()=>{ PDFJS_PROMESSA = null; reject(new Error('Não foi possível carregar o leitor de PDF (verifique a internet). Tente exportar em Excel.')); };
+    document.head.appendChild(s);
+  });
+  return PDFJS_PROMESSA;
+}
+async function fioAoaDePdf(buf){
+  const lib = await carregarPdfJs();
+  const pdf = await lib.getDocument({ data: buf }).promise;
+  const aoa = [];
+  for(let n=1; n<=pdf.numPages; n++){
+    const pg = await pdf.getPage(n);
+    const tc = await pg.getTextContent();
+    const itens = tc.items.filter(it=> it.str && it.str.trim()).map(it=> ({ x: it.transform[4], y: it.transform[5], w: it.width||0, s: it.str }));
+    itens.sort((a,b)=> b.y - a.y || a.x - b.x);
+    const linhas = [];
+    itens.forEach(it=>{ const l = linhas.find(g=> Math.abs(g.y - it.y) < 2.5); if(l) l.itens.push(it); else linhas.push({ y: it.y, itens:[it] }); });
+    linhas.sort((a,b)=> b.y - a.y).forEach(l=>{
+      const its = l.itens.sort((a,b)=> a.x - b.x);
+      const cel = []; let atual = null, fim = -1e9;
+      its.forEach(it=>{
+        const gap = it.x - fim;
+        if(atual===null || gap > 8){ if(atual!==null) cel.push(atual.trim()); atual = it.s; }
+        else atual += (gap > 1.5 ? ' ' : '') + it.s;
+        fim = it.x + it.w;
+      });
+      if(atual!==null) cel.push(atual.trim());
+      aoa.push(cel);
+    });
+  }
+  return aoa;
+}
 function fioLerArquivo(file){
   return new Promise((resolve, reject)=>{
     const nome = (file.name||'').toLowerCase();
@@ -5604,6 +5957,7 @@ function fioLerArquivo(file){
     r.onload = (e)=>{
       try{
         const buf = new Uint8Array(e.target.result);
+        if(/\.pdf$/.test(nome)){ fioAoaDePdf(buf).then(resolve).catch(err=> reject(new Error('Não foi possível ler este PDF: ' + (err.message||err)))); return; }
         if(/\.(csv|txt|tsv|prn)$/.test(nome)){ resolve(fioAoaDeTexto(fioTextoDeBuffer(buf))); return; }
         let aoa = null;
         try{ aoa = fioAoaDePlanilha(buf); }catch(err){ aoa = null; }
@@ -5923,6 +6277,14 @@ function fioVincularAutomatico(){
   render();
   showToast(n>0 ? `${n} produto(s) do catálogo vinculado(s) ao Fiorilli pelo nome igual.` : 'Nenhum produto novo para vincular pelo nome. Use o campo "Código no Fiorilli" para vincular manualmente.', n>0?'success':undefined);
 }
+function fioDefinirFator(produtoId, valor){
+  if(semPermissao('produtos')) return;
+  const cp = STATE.produtos.find(x=> x.id===produtoId); if(!cp) return;
+  const n = Number(valor);
+  if(n>0) cp.fatorSIS = n; else delete cp.fatorSIS; // vazio = volta a "mesma unidade" (1)
+  saveState(true);
+  showToast(n>0 ? `Fator ${fmtNumFio(n)} gravado para ${cp.descricao}.` : `Fator de ${cp.descricao} voltou para 1 (mesma unidade).`, 'success');
+}
 function fioDefinirVinculo(produtoId, valor){
   if(semPermissao('produtos')) return;
   const cp = STATE.produtos.find(x=> x.id===produtoId); if(!cp) return;
@@ -6095,7 +6457,7 @@ function fioAbaImportarHTML(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn" onclick="document.getElementById('fioArquivo').click()">📂 Escolher arquivo exportado</button>
         <button class="btn secondary" onclick="fioAbrirColar()">📋 ${fioColarAberto?'Fechar área de colar':'Colar linhas copiadas do Fiorilli'}</button>
-        <input type="file" id="fioArquivo" accept=".xlsx,.xls,.ods,.csv,.txt,.tsv,.prn" style="display:none;" onchange="fioEscolherArquivo(event)">
+        <input type="file" id="fioArquivo" accept=".xlsx,.xls,.ods,.csv,.txt,.tsv,.prn,.pdf" style="display:none;" onchange="fioEscolherArquivo(event)">
       </div>
       ${fioColarAberto ? `
       <div class="field" style="margin-top:12px;">
@@ -6103,7 +6465,7 @@ function fioAbaImportarHTML(){
         <textarea id="fioColarTexto" class="fio-colar" placeholder="Código	Descrição	Unid.	Estoque&#10;00123	DIPIRONA 500MG COMPRIMIDO	CP	1500"></textarea>
       </div>
       <div style="margin-top:8px;"><button class="btn" onclick="fioLerColado()">Ler dados colados</button></div>` : ''}
-      <div class="helpbox" style="margin-top:14px;margin-bottom:0;">💡 Pode importar quantas vezes quiser: produtos já existentes são <b>atualizados</b> (estoque, consumo, custo), e entradas de notas já importadas antes são <b>ignoradas</b> — nada fica duplicado. Arquivos em PDF não dão para ler; exporte em Excel ou copie da tela.</div>
+      <div class="helpbox" style="margin-top:14px;margin-bottom:0;">💡 Pode importar quantas vezes quiser: produtos já existentes são <b>atualizados</b> (estoque, consumo, custo), e entradas de notas já importadas antes são <b>ignoradas</b> — nada fica duplicado. PDF também é aceito, mas Excel/CSV costuma sair mais certinho (no PDF confira as colunas na prévia).</div>
     </div>`}
     <div class="card">
       <h2>🗂️ Histórico de importações (${hist.length})</h2>
@@ -6312,6 +6674,7 @@ function fioAbaVinculosHTML(){
   }).filter(l=>{
     if(termo && !fioNorm(l.cp.descricao).includes(termo) && !fioNorm(l.cp.codigoFiorilli).includes(termo)) return false;
     if(filtroFio.vincSo==='sem' && (l.status==='codigo' || l.status==='nome')) return false;
+    if(filtroFio.vincSo==='fator' && !(l.info && l.info.p.unidade && !sisMesmaUnidade(l.info.p.unidade, l.cp.unidade) && !(Number(l.cp.fatorSIS)>0))) return false;
     return true;
   }).sort((a,b)=> normTxt(a.cp.descricao).localeCompare(normTxt(b.cp.descricao)));
   const comCodigo = FIORILLI.produtos.filter(p=> p.codigo).slice(0, 6000);
@@ -6331,11 +6694,12 @@ function fioAbaVinculosHTML(){
         <div class="field"><label>Mostrar</label><select onchange="fioFiltrar('vincSo', this.value)">
           <option value="" ${!filtroFio.vincSo?'selected':''}>Todos</option>
           <option value="sem" ${filtroFio.vincSo==='sem'?'selected':''}>Só os sem vínculo</option>
+          <option value="fator" ${filtroFio.vincSo==='fator'?'selected':''}>Só os que precisam de fator (unidade diferente)</option>
         </select></div>
       </div>
       <datalist id="fioListaCodigos">${comCodigo.map(p=>`<option value="${esc(p.codigo)} — ${esc(p.descricao)}">`).join('')}</datalist>
       <div class="table-wrap"><table>
-        <thead><tr><th>Produto do catálogo</th><th>Unid.</th><th>Situação</th><th>Produto no Fiorilli</th><th>Código no Fiorilli</th></tr></thead>
+        <thead><tr><th>Produto do catálogo</th><th>Unid.</th><th>Situação</th><th>Produto no Fiorilli</th><th>Código no Fiorilli</th><th title="Quantas unidades do SIS vêm em 1 unidade do catálogo">Fator</th></tr></thead>
         <tbody>
           ${linhas.length===0 ? `<tr class="empty-row"><td colspan="5">${STATE.produtos.length? 'Nenhum produto com esses filtros.' : 'O catálogo de produtos está vazio.'}</td></tr>` :
             linhas.map(l=>`<tr>
@@ -6344,6 +6708,8 @@ function fioAbaVinculosHTML(){
               <td>${ST[l.status]}</td>
               <td style="white-space:normal;min-width:180px;">${l.info ? esc(l.info.p.descricao) + `<div class="fio-ref">${fioResumoItemHTML(l.info)}</div>` : '—'}</td>
               <td>${podeCat ? `<input list="fioListaCodigos" value="${esc(l.cp.codigoFiorilli||'')}" placeholder="${l.status==='nome' && l.info.p.codigo ? esc(l.info.p.codigo) : 'código'}" style="width:150px;padding:5px 7px;border:1px solid var(--line);border-radius:6px;font-family:inherit;" onchange="fioDefinirVinculo('${l.cp.id}', this.value)">` : (esc(l.cp.codigoFiorilli)||'—')}</td>
+              <td>${podeCat ? `<input type="number" min="0" step="any" value="${Number(l.cp.fatorSIS)>0?Number(l.cp.fatorSIS):''}" placeholder="1" title="Quantas unidades do SIS vêm em 1 ${esc(l.cp.unidade||'unidade')} daqui" style="width:70px;padding:5px 7px;border:1px solid var(--line);border-radius:6px;font-family:inherit;" onchange="fioDefinirFator('${l.cp.id}', this.value)">` : (Number(l.cp.fatorSIS)>0?fmtNumFio(l.cp.fatorSIS):'1')}
+                ${l.info && l.info.p.unidade && !sisMesmaUnidade(l.info.p.unidade, l.cp.unidade) ? `<div class="fio-ref" style="color:#8a5a1c;">aqui ${esc(l.cp.unidade||'?')}, SIS ${esc(l.info.p.unidade)}</div>` : ''}</td>
             </tr>`).join('')}
         </tbody>
       </table></div>
@@ -6405,8 +6771,20 @@ function sisProdutoDoItem(it){
   if(!codigo){ const info = fioInfoItem(it); if(info && info.p.codigo) codigo = info.p.codigo; }
   const info = codigo ? fioInfoPorCodigo(codigo) : null;
   const fator = cp && Number(cp.fatorSIS)>0 ? Number(cp.fatorSIS) : 1;
-  return { codigo: sisFmtCodigo(codigo), fator, descricaoSIS: info ? info.p.descricao : '', unidadeSIS: info ? (info.p.unidade||'') : '' };
+  return { codigo: sisFmtCodigo(codigo), fator, fatorDefinido: !!(cp && Number(cp.fatorSIS)>0),
+           descricaoSIS: info ? info.p.descricao : '', unidadeSIS: info ? (info.p.unidade||'') : '' };
 }
+// Unidades com nomes diferentes que querem dizer a mesma coisa (FR = FRA = FRASCO...).
+const SIS_UNID_GRUPOS = [['cp','cpr','comp','compr','comprimido','comprimidos'],['cap','caps','cps','capsula','capsulas'],['fr','fra','frs','frasco','frascos'],
+  ['amp','ampola','ampolas'],['un','und','unid','unidade','unidades'],['cx','cxa','caixa','caixas'],['tb','tubo','tubos','bisnaga'],['env','envelope','sache','sch'],
+  ['l','lt','litro','litros'],['g','gr','grama','gramas'],['pct','pacote','pacotes'],['rl','rolo','rolos'],['bs','bolsa','bolsas'],['gl','galao']];
+function sisMesmaUnidade(a, b){
+  const x = fioNorm(a).replace(/\s/g,''), y = fioNorm(b).replace(/\s/g,'');
+  if(!x || !y || x===y || x.startsWith(y) || y.startsWith(x)) return true;
+  return SIS_UNID_GRUPOS.some(g=> g.includes(x) && g.includes(y));
+}
+// Item que precisa de atenção antes de ir para o SIS: sem código, ou unidade diferente sem fator informado.
+function sisItemPrecisaAjuste(l){ return !l.codigo || (l.unidadeSIS && !sisMesmaUnidade(l.unidadeSIS, l.unidade) && !l.fatorDefinido); }
 // Estrutura do SIS dentro do controle de recebimento: leitura (não altera nada) e escrita (só nas ações).
 function sisLeitura(rec){ const s = (rec && rec.sis) || {}; return { pedido: s.pedido || { numero:'' }, entradas: Array.isArray(s.entradas) ? s.entradas : [] }; }
 function sisDoRec(rec){
@@ -6481,6 +6859,7 @@ function sisAposEntrega(chave, recebimentoId, xmlItens){
   if(!ent) return false;
   saveState(true);
   sisFolhaAberta = ent.id;
+  abaPedido = 'sis';
   render();
   setTimeout(()=>{ const el = document.getElementById('sisFolha_'+ent.id); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 120);
   showToast(completo
@@ -6622,21 +7001,19 @@ function sisXmlPreencher(chave){
     if(x.lotes.length) x.lotes.forEach(l=> g.lotes.push({ lote:l.lote, validade:l.validade, qtd:l.qtd }));
     else g.lotes.push({ lote:'', validade:'', qtd:x.qCom });
   });
+  // Os campos da baixa ficam na aba "Recebimento": guarda os valores e eles aparecem preenchidos lá.
+  const pf = { chave, origem: 'a NF ' + nfe.numero + ' (XML)', data: hojeISO(), nota: 'NF ' + nfe.numero + (nfe.serie ? ' série ' + nfe.serie : ''),
+               emissao: nfe.emissao, obs: 'Conferido pelo XML da NF-e', qtd:{}, lote:{}, val:{} };
   let preenchidos = 0;
   p.linhas.forEach(l=>{
     const g = porLinha[l.id];
-    const elQ = document.getElementById('recQtd_'+l.id), elL = document.getElementById('recLote_'+l.id), elV = document.getElementById('recVal_'+l.id);
-    if(!g){ if(elQ) elQ.value = ''; return; }
-    if(elQ){ elQ.value = g.qtd; preenchidos++; }
+    if(!g || l.pendente<=0) return;
+    pf.qtd[l.id] = g.qtd; preenchidos++;
     const comLote = g.lotes.filter(x=> x.lote);
-    if(elL) elL.value = comLote.map(x=> x.lote).join(' / ');
-    const validades = comLote.map(x=> x.validade).filter(Boolean).sort();
-    if(elV) elV.value = validades[0] || '';
+    pf.lote[l.id] = comLote.map(x=> x.lote).join(' / ');
+    pf.val[l.id] = comLote.map(x=> x.validade).filter(Boolean).sort()[0] || '';
   });
-  const set = (id, v)=>{ const el = document.getElementById(id); if(el && v) el.value = v; };
-  set('recNota', 'NF ' + nfe.numero + (nfe.serie ? ' série ' + nfe.serie : ''));
-  set('recEmissao', nfe.emissao);
-  const elO = document.getElementById('recObs'); if(elO && !elO.value) elO.value = 'Conferido pelo XML da NF-e';
+  recPrefill = pf;
   // Guarda os lotes completos e a chave da nota para irem junto no "Registrar entrega".
   sisXmlAplicado = {
     chave, chaveNFe: nfe.chave, lotesPorItem: {},
@@ -6646,8 +7023,30 @@ function sisXmlPreencher(chave){
     })
   };
   Object.keys(porLinha).forEach(id=>{ sisXmlAplicado.lotesPorItem[id] = porLinha[id].lotes.filter(x=> x.lote); });
-  const elD = document.getElementById('recData'); if(elD) elD.scrollIntoView({behavior:'smooth', block:'center'});
+  abaPedido = 'recebimento';
+  render();
+  setTimeout(()=>{ const elD = document.getElementById('recData'); if(elD) elD.scrollIntoView({behavior:'smooth', block:'center'}); }, 80);
   showToast(`Baixa preenchida com a NF ${nfe.numero}: ${preenchidos} item(ns). Confira e clique em "Registrar entrega".`, 'success');
+}
+/* Aba "Nota fiscal (XML)" da tela de um pedido */
+function sisAbaXmlHTML(p){
+  const podeEd = podeEditar('conferenciaPedidos');
+  if(p.totalPendente<=0 && !sisXmlConf) return `<div class="card"><div class="alerta-ok" style="margin:0;">✅ Este pedido já foi entregue por completo — não há o que conferir por nota.</div></div>`;
+  return `
+    <div class="card">
+      <h2>📄 Conferir a entrega pelo XML da nota fiscal</h2>
+      <div class="subtitle">O fornecedor manda o arquivo <b>.xml</b> da NF-e junto com a entrega (ele é pedido no e-mail do pedido). Com ele o Cotações confere tudo sozinho:</div>
+      <ol class="fio-passos">
+        <li>Clique em <b>Escolher o XML da nota</b> e selecione o arquivo.</li>
+        <li>Confira a tabela: cada produto da nota é ligado ao item do pedido; o sistema avisa quantidade a mais ou a menos, <b>preço acima do cotado</b>, CNPJ diferente e nota já registrada.</li>
+        <li>Clique em <b>Preencher a baixa com esta nota</b> — quantidades, lote, validade, nº e emissão da nota vão para a aba <b>Recebimento</b>, prontos para "Registrar entrega".</li>
+      </ol>
+      ${podeEd ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="btn" onclick="document.getElementById('sisXmlArquivo').click()">📂 Escolher o XML da nota</button>
+        <input type="file" id="sisXmlArquivo" accept=".xml,text/xml,application/xml" style="display:none;" onchange="sisLerArquivoXml(event,'${p.chave}')">
+      </div>` : '<div class="muted" style="font-size:12px;">Seu perfil só permite visualizar.</div>'}
+    </div>
+    ${sisXmlPainelHTML(p)}`;
 }
 function sisXmlPainelHTML(p){
   if(!sisXmlConf || sisXmlConf.chave!==p.chave) return '';
@@ -6707,7 +7106,7 @@ function sisXmlPainelHTML(p){
       ${naoVieram.length ? `<div class="alerta-aviso" style="margin:10px 0 0;">📦 <b>Não vieram nesta nota:</b> ${naoVieram.map(l=> esc(l.descricao) + ' (' + fmtNum(l.pendente) + ' ' + esc(l.unidade||'') + ')').join('; ')}.</div>` : `<div class="alerta-ok" style="margin:10px 0 0;">✅ Todos os itens pendentes do pedido estão nesta nota.</div>`}
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn" onclick="sisXmlPreencher('${p.chave}')">↪ Preencher a baixa com esta nota</button>
-        <span class="muted" style="font-size:12px;align-self:center;">Só preenche os campos abaixo — a entrega é gravada quando você clicar em "Registrar entrega".</span>
+        <span class="muted" style="font-size:12px;align-self:center;">Leva os valores para a aba "Recebimento" — a entrega só é gravada quando você clicar em "Registrar entrega" lá.</span>
       </div>
     </div>`;
 }
@@ -6824,10 +7223,10 @@ function sisCardPedidoHTML(p){
   const entradas = s.entradas.slice().sort((a,b)=> (b.criadoEm||'').localeCompare(a.criadoEm||''));
   const folhaEntrada = entradas.find(en=> en.id===sisFolhaAberta);
   return `
+    ${sisPrepararHTML(p, d)}
     <div class="card no-print">
       <h2>🏥 Lançamentos no Fiorilli (SIS)</h2>
       <div class="subtitle">O Cotações monta o que deve ser lançado no SIS e controla o que já foi lançado — quem grava no SIS é você, seguindo a folha.</div>
-      ${d.faltas.length ? `<div class="alerta-aviso">⚠️ Para as folhas saírem completas, falta cadastrar: <ul style="margin:6px 0 0 18px;padding:0;">${d.faltas.map(f=> '<li>'+f+'</li>').join('')}</ul></div>` : ''}
       <div class="conf-kv" style="margin-bottom:12px;">
         <div><span class="k">Pedido no SIS</span><b class="v" style="color:${numPedido?'var(--green)':'#8a5a1c'};">${numPedido ? '✅ nº '+esc(numPedido) : '⏳ ainda não lançado'}</b></div>
         <div><span class="k">Fornecedor no SIS</span><b class="v">${d.forn ? esc(d.forn) : '—'}</b></div>
@@ -6863,6 +7262,88 @@ function sisCardPedidoHTML(p){
     ${sisFolhaAberta==='pedido' ? sisFolhaPedidoHTML(p, d) : ''}
     ${folhaEntrada ? sisFolhaEntradaHTML(p, folhaEntrada, numPedido) : ''}`;
 }
+/* ---- "Preparar para o SIS": completa os códigos que faltam ali mesmo, sem trocar de tela ---- */
+function sisDatalistCodigosHTML(id){
+  if(!fioTemDados()) return '';
+  return `<datalist id="${id}">${FIORILLI.produtos.filter(x=> x.codigo).slice(0, 6000).map(x=> `<option value="${esc(sisFmtCodigo(x.codigo))} — ${esc(x.descricao)}">`).join('')}</datalist>`;
+}
+function sisPrepararHTML(p, d){
+  const destRec = STATE.destinos.find(x=> normTxt(x.nome)===normTxt(p.destino));
+  const itens = d.linhas.filter(sisItemPrecisaAjuste);
+  if(d.forn && d.unid.codigo && !itens.length) return '';
+  const podeCad = isMaster(); // códigos são dados de cadastro: só o administrador grava
+  const inp = 'padding:6px 8px;border:1px solid var(--line);border-radius:7px;font-family:inherit;font-size:12.5px;';
+  const passos = [];
+  if(!d.forn) passos.push(`
+    <div class="sis-passo"><b>Fornecedor:</b> qual é o código de <b>${esc(p.fornecedor)}</b> no SIS?
+      ${podeCad ? `<input id="qfForn" placeholder="ex.: 57" style="${inp}width:110px;"> <button class="btn small" onclick="sisQfFornecedor('${p.chave}')">Salvar</button>
+      <span class="muted" style="font-size:11.5px;">ou importe todos de uma vez em Cadastros → Fornecedores → aba 🔄 Fiorilli</span>` : ''}</div>`);
+  if(!d.unid.codigo) passos.push(`
+    <div class="sis-passo"><b>Destino:</b> ${destRec ? `qual é a unidade do SIS de <b>${esc(p.destino)}</b>?
+      ${podeCad ? `<input id="qfUnid" placeholder="ex.: 2023857001" style="${inp}width:140px;"> <button class="btn small" onclick="sisQfUnidade('${p.chave}')">Salvar</button>
+      <span class="muted" style="font-size:11.5px;">ou importe as unidades em Cadastros → Destinos/Setores → aba 🔄 Fiorilli</span>` : ''}` : 'esta cotação não tem destino/setor cadastrado.'}</div>`);
+  if(itens.length) passos.push(`
+    <div class="sis-passo"><b>Produtos:</b> ${itens.length} item(ns) precisam do código do Fiorilli${itens.some(l=> l.codigo)?' ou do fator de conversão':''}.
+      <div class="table-wrap" style="margin-top:8px;max-height:none;"><table>
+        <thead><tr><th>Produto (cotação)</th><th>Unid. aqui</th><th>Código no Fiorilli</th><th>Unid. no SIS</th><th>Quantas unid. do SIS em 1 daqui?</th></tr></thead>
+        <tbody>${itens.map(l=> `<tr>
+          <td style="white-space:normal;min-width:180px;"><b>${esc(l.descricao)}</b></td>
+          <td>${esc(l.unidade)||'—'}</td>
+          <td>${podeCad ? `<input id="qfCod_${l.id}" list="sisListaCodigos" value="${esc(l.codigo)}" placeholder="ex.: 003.042.732" style="${inp}width:190px;">` : (esc(l.codigo)||'—')}</td>
+          <td>${esc(l.unidadeSIS)||'<span class="muted">?</span>'}</td>
+          <td>${podeCad ? `<input id="qfFat_${l.id}" type="number" min="0" step="any" value="${l.fatorDefinido?l.fator:''}" placeholder="1 = mesma" style="${inp}width:90px;">` : fmtNumFio(l.fator)}
+            ${l.unidadeSIS && !sisMesmaUnidade(l.unidadeSIS, l.unidade) ? `<div class="fio-ref" style="color:#8a5a1c;">aqui ${esc(l.unidade)}, no SIS ${esc(l.unidadeSIS)}</div>` : ''}</td></tr>`).join('')}</tbody>
+      </table></div>
+      ${podeCad ? `<div style="margin-top:8px;"><button class="btn small" onclick="sisQfProdutos('${p.chave}')">💾 Salvar produtos</button>
+        <span class="muted" style="font-size:11.5px;">Fator: ex. aqui você compra CAIXA com 21 cápsulas e o SIS conta CÁPSULA → 21. Mesma unidade → 1.</span></div>` : ''}
+    </div>`);
+  return `
+    <div class="card no-print" style="border-left:4px solid var(--amber);">
+      <h2>🧩 Preparar este pedido para o SIS</h2>
+      <div class="subtitle">${podeCad ? 'Complete aqui o que falta — fica gravado no cadastro e serve para os próximos pedidos também.' : 'Faltam alguns códigos do SIS. Peça ao administrador para completar.'}</div>
+      ${passos.join('')}
+      ${sisDatalistCodigosHTML('sisListaCodigos')}
+    </div>`;
+}
+function sisQfFornecedor(chave){
+  if(semPermissao('fornecedores')) return;
+  const p = getPedido(chave); if(!p) return;
+  const v = ((document.getElementById('qfForn')||{}).value||'').trim();
+  if(!v){ showToast('Digite o código do fornecedor no SIS.', 'warning'); return; }
+  const f = STATE.fornecedores.find(x=> x.id===p.fid); if(!f) return;
+  f.codigoSIS = v; saveState(true); render();
+  showToast(`Código ${v} gravado para ${f.nome}.`, 'success');
+}
+function sisQfUnidade(chave){
+  if(semPermissao('destinos')) return;
+  const p = getPedido(chave); if(!p) return;
+  const v = ((document.getElementById('qfUnid')||{}).value||'').trim();
+  if(!v){ showToast('Digite o código da unidade no SIS.', 'warning'); return; }
+  const d = STATE.destinos.find(x=> normTxt(x.nome)===normTxt(p.destino)); if(!d) return;
+  d.unidadeSIS = v; saveState(true); render();
+  showToast(`Unidade ${v} gravada para ${d.nome}.`, 'success');
+}
+function sisQfProdutos(chave){
+  if(semPermissao('produtos')) return;
+  const p = getPedido(chave); if(!p) return;
+  let n = 0;
+  sisLinhasPedido(p).forEach(l=>{
+    const elC = document.getElementById('qfCod_'+l.id), elF = document.getElementById('qfFat_'+l.id);
+    if(!elC && !elF) return;
+    const cod = elC ? String(elC.value||'').split(' — ')[0].trim() : '';
+    const fat = elF ? Number(elF.value) : 0;
+    if(!cod && !(fat>0)) return;
+    let cp = STATE.produtos.find(x=> normTxt(x.descricao)===normTxt(l.descricao));
+    if(!cp){ cp = { id: uid(), descricao: l.descricao, unidade: l.unidade||'', categoria:'' }; STATE.produtos.push(cp); } // entra no catálogo para valer nas próximas
+    if(cod) cp.codigoFiorilli = cod;
+    if(fat>0) cp.fatorSIS = fat;
+    n++;
+  });
+  if(!n){ showToast('Preencha o código (e o fator, se a unidade for diferente) de pelo menos um produto.', 'warning'); return; }
+  saveState(true); render();
+  showToast(`${n} produto(s) atualizado(s) no catálogo.`, 'success');
+}
+
 /* ---- Visão geral (módulo 5): pendências de lançamento no SIS + configuração ---- */
 function sisPendenciasGerais(){
   const out = [];
@@ -6878,7 +7359,7 @@ function sisPendenciasGerais(){
 function sisContarALancar(){
   try{ return listaPedidos().reduce((n,p)=> n + sisLeitura(p.rec).entradas.filter(e=> e.status!=='lancada').length, 0); }catch(e){ return 0; }
 }
-function sisAbrirPedido(chave){ pedidoConfSel = chave; goto('conferenciaPedidos'); }
+function sisAbrirPedido(chave){ pedidoConfSel = chave; abaPedido = 'sis'; recPrefill = null; goto('conferenciaPedidos'); }
 function sisSalvarConfig(){
   if(semPermissao('integracaoFiorilli')) return;
   const s = STATE.config.sis;
@@ -6891,10 +7372,39 @@ function sisSalvarConfig(){
   saveState(true); render();
   showToast('Configuração dos lançamentos no SIS salva.', 'success');
 }
+/* Passo a passo: mostra o que já está pronto e o que falta para as folhas saírem completas. */
+function sisIrPara(onde){
+  if(onde==='destinos'){ abaDestinos = 'sis'; goto('destinos'); }
+  else if(onde==='fornecedores'){ abaFornecedores = 'sis'; goto('fornecedores'); }
+  else { fioAba = onde; goto('integracaoFiorilli'); }
+}
+function sisChecklistHTML(){
+  const dest = STATE.destinos, dOk = dest.filter(d=> d.unidadeSIS).length;
+  const forn = STATE.fornecedores.filter(f=> f.ativo!==false), fOk = forn.filter(f=> f.codigoSIS).length;
+  const prods = STATE.produtos.map(cp=> ({ cp, sp: sisProdutoDoItem({ descricao: cp.descricao, unidade: cp.unidade }) }));
+  const pOk = prods.filter(x=> x.sp.codigo).length;
+  const fatorFalta = prods.filter(x=> x.sp.codigo && x.sp.unidadeSIS && !sisMesmaUnidade(x.sp.unidadeSIS, x.cp.unidade) && !x.sp.fatorDefinido).length;
+  const item = (ok, titulo, detalhe, botao)=> `
+    <div class="cad-check"><span class="ic">${ok?'✅':'⬜'}</span>
+      <div style="flex:1;"><b>${titulo}</b><div class="muted" style="font-size:12px;">${detalhe}</div></div>
+      ${botao ? `<div>${botao}</div>` : ''}</div>`;
+  return `
+    <div class="card">
+      <h2>🧭 Passo a passo para deixar tudo pronto</h2>
+      <div class="subtitle">Feito uma vez, serve para todos os pedidos. Os itens em branco ⬜ ainda têm algo a completar.</div>
+      ${item(dest.length && dOk===dest.length, `1. Unidades do SIS nos Destinos/Setores — ${dOk} de ${dest.length}`, 'Importe as unidades de trabalho do SIS (ou digite o código de cada destino).', `<button class="btn small secondary" onclick="sisIrPara('destinos')">Abrir</button>`)}
+      ${item(forn.length && fOk===forn.length, `2. Código do SIS dos fornecedores — ${fOk} de ${forn.length}`, 'Importe a lista de fornecedores do SIS: quem já existe aqui só ganha o código.', `<button class="btn small secondary" onclick="sisIrPara('fornecedores')">Abrir</button>`)}
+      ${item(prods.length && pOk===prods.length, `3. Código do Fiorilli dos produtos do catálogo — ${pOk} de ${prods.length}`, 'Importe a lista de produtos do Fiorilli (aba 📥) — os de nome igual se ligam sozinhos; os outros, na aba 🔗 Vínculo.', `<button class="btn small secondary" onclick="sisIrPara('importar')">Importar</button> <button class="btn small secondary" onclick="sisIrPara('vinculos')">Vínculo</button>`)}
+      ${item(!fatorFalta, `4. Fator de conversão — ${fatorFalta ? fatorFalta+' produto(s) com unidade diferente do SIS' : 'nenhuma pendência'}`, 'Só quando a unidade é diferente: ex. aqui CAIXA com 21 cápsulas e no SIS CÁPSULA → fator 21.', fatorFalta ? `<button class="btn small secondary" onclick="filtroFio.vincSo='fator'; sisIrPara('vinculos')">Ver</button>` : '')}
+      ${item(sisCfg().exigirXml!==false, '5. Pedir o XML da nota aos fornecedores', sisCfg().exigirXml!==false ? 'Ligado: o e-mail do pedido já pede o XML.' : 'Desligado — ligue abaixo para a conferência por XML.', '')}
+      <div class="muted" style="font-size:11.5px;margin-top:8px;">Faltou algo num pedido específico? Na conferência do pedido, aba <b>🏥 Lançamentos no SIS</b>, dá para completar ali mesmo.</div>
+    </div>`;
+}
 function sisAbaLancamentosHTML(){
   const cfg = sisCfg();
   const pend = sisAtivo() ? sisPendenciasGerais() : [];
   return `
+    ${sisAtivo() ? sisChecklistHTML() : ''}
     <div class="card edit-only">
       <h2>⚙️ Lançamentos no SIS — configuração</h2>
       <div class="formgrid">
